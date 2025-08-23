@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     # Logging
     LOG_LEVEL: str = "INFO"
-    LOG_ROTATION: str = "00:00"
+    LOG_ROTATION: str = "00:00"  # Time-based rotation (daily at midnight)
     LOG_RETENTION_DAYS: int = 7
 
     class Config:

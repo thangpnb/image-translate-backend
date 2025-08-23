@@ -17,28 +17,17 @@ def setup_logging():
         colorize=True
     )
     
-    # File logging with rotation
+    # Single file logging with time-based rotation (includes all levels: DEBUG, INFO, WARNING, ERROR)
     logger.add(
         "logs/app_{time:YYYY-MM-DD}.log",
         level=settings.LOG_LEVEL,
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-        rotation=settings.LOG_ROTATION,
+        rotation=settings.LOG_ROTATION,  # Time-based rotation
         retention=f"{settings.LOG_RETENTION_DAYS} days",
         compression="zip",
-        enqueue=True  # Thread-safe logging
-    )
-    
-    # Error file logging
-    logger.add(
-        "logs/errors_{time:YYYY-MM-DD}.log",
-        level="ERROR",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message} | {extra}",
-        rotation=settings.LOG_ROTATION,
-        retention=f"{settings.LOG_RETENTION_DAYS * 2} days",  # Keep errors longer
-        compression="zip",
-        backtrace=True,
-        diagnose=True,
-        enqueue=True
+        backtrace=True,   # Include traceback for errors
+        diagnose=True,    # Include variable values in traceback
+        enqueue=True      # Thread-safe logging
     )
     
     return logger

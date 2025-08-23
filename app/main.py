@@ -20,14 +20,14 @@ from .api.routes import router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    logger.info("Starting up Image Translation Backend")
-    
-    # Ensure logs directory exists
+    # Ensure logs directory exists first
     os.makedirs("logs", exist_ok=True)
     
-    # Setup logging
+    # Setup logging before any other logger calls
     setup_logging()
+    
+    # Startup
+    logger.info("Starting up Image Translation Backend")
     
     # Connect to Redis
     try:
