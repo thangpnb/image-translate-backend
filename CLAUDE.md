@@ -24,7 +24,7 @@ This is a FastAPI backend service for image translation using Gemini API with in
 pip install -r requirements.txt
 
 # Run Redis (required)
-docker run -d -p 6379:6379 redis:7-alpine
+docker run -d -p 6379:6379 redis:8-alpine
 
 # Run development server
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -36,13 +36,13 @@ python app/main.py
 ### Docker Development
 ```bash
 # Start all services (recommended)
-docker-compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml up -d
 
 # View logs
-docker-compose -f docker/docker-compose.yml logs -f app
+docker compose -f docker/docker-compose.yml logs -f app
 
 # Rebuild after changes
-docker-compose -f docker/docker-compose.yml up --build
+docker compose -f docker/docker-compose.yml up --build
 ```
 
 ### Production Deployment
@@ -51,7 +51,7 @@ docker-compose -f docker/docker-compose.yml up --build
 docker build -f docker/Dockerfile.prod -t image-translate-backend:prod .
 
 # Run with production config (uncomment prod services in docker-compose.yml)
-docker-compose -f docker/docker-compose.yml up -d nginx app_prod redis
+docker compose -f docker/docker-compose.yml up -d nginx app_prod redis
 ```
 
 ## Architecture Overview
