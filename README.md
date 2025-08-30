@@ -53,10 +53,10 @@ cp .env.example .env
 
 ```bash
 # Start all services (app + Redis)
-docker-compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml up -d
 
 # View logs
-docker-compose -f docker/docker-compose.yml logs -f app
+docker compose -f docker/docker-compose.yml logs -f app
 ```
 
 ### 4. Run Locally
@@ -243,7 +243,7 @@ docker build -f docker/Dockerfile.prod -t image-translate-backend:prod .
 ```bash
 # Enable production services in docker-compose.yml
 # Uncomment nginx and app_prod services
-docker-compose -f docker/docker-compose.yml up -d nginx app_prod redis
+docker compose -f docker/docker-compose.yml up -d nginx app_prod redis
 ```
 
 ### Scaling
@@ -327,7 +327,7 @@ View application logs:
 
 ```bash
 # Docker
-docker-compose -f docker/docker-compose.yml logs -f app
+docker compose -f docker/docker-compose.yml logs -f app
 
 # Local
 tail -f logs/app_$(date +%Y-%m-%d).log

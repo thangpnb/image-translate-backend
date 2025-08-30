@@ -16,6 +16,141 @@ This is a FastAPI backend service for image translation using Gemini API with in
 - **Containerization**: Docker with multi-stage builds
 - **Reverse Proxy**: Nginx with rate limiting and load balancing
 
+## Codebase Navigation & Understanding
+
+### Project Index Usage
+
+When working with this codebase, ALWAYS use the project index for architectural awareness:
+
+### 🔍 First Action: Check for Index
+```bash
+ls PROJECT_INDEX.dsl 2>/dev/null
+```
+
+### 📖 Query the Index (DON'T Load Full File)
+
+#### DSL Format Key:
+Understanding PROJECT_INDEX.dsl structure:
+- `P` - Project metadata (root, indexed_at, file counts)
+- `F` - File entries
+- `FN file::function` - Function definitions
+- `CL file::ClassName` - Class definitions
+- `M file::ClassName.method` - Class method definitions
+- `C=` - Calls these functions/methods
+- `B=` - Called by these functions/methods
+- `I` - Imports/dependencies
+- `D` - Directory purposes
+- `T` - Tree structure
+- `MD` - Markdown files with section counts
+- `DEP` - Dependencies summary by file
+
+#### Query Examples:
+Use grep/ripgrep to query specific information:
+
+```bash
+# === FINDING FUNCTIONS & CLASSES ===
+# Find specific function or method by name
+rg "::FUNCTION_NAME" PROJECT_INDEX.dsl
+
+# Find specific class
+rg "^CL.*::CLASS_NAME" PROJECT_INDEX.dsl
+
+# List all functions in a file
+grep "^FN PATH/TO/FILE::" PROJECT_INDEX.dsl | cut -d' ' -f2
+
+# List all classes in a file  
+grep "^CL PATH/TO/FILE::" PROJECT_INDEX.dsl | cut -d' ' -f2
+
+# List all methods of a class
+grep "^M.*::CLASS_NAME\." PROJECT_INDEX.dsl
+
+# Find all functions in specific language
+grep "^FN.*\.py::" PROJECT_INDEX.dsl
+
+# Find functions/methods with specific patterns
+rg "::(.*PATTERN.*)" PROJECT_INDEX.dsl
+
+# === IMPACT ANALYSIS (Before Changes) ===
+# What calls this function? (who depends on it)
+rg "B=.*FUNCTION_NAME" PROJECT_INDEX.dsl
+
+# What does this function call?
+rg "^FN.*::FUNCTION_NAME.*C=" PROJECT_INDEX.dsl
+
+# Find dead code (functions with no callers)
+grep "^FN" PROJECT_INDEX.dsl | grep -v " B="
+
+# === IMPORTS & DEPENDENCIES ===
+# Find all imports of a module
+rg "^I.*MODULE_NAME" PROJECT_INDEX.dsl | cut -d= -f1
+
+# Check file dependencies
+grep "^DEP PATH/TO/FILE" PROJECT_INDEX.dsl
+
+# Find files importing specific library
+rg "^I.*=.*LIBRARY_NAME" PROJECT_INDEX.dsl
+
+# === ARCHITECTURE QUERIES ===
+# Get directory purposes
+grep "^D DIRECTORY_PATH" PROJECT_INDEX.dsl
+
+# View project stats
+grep "^P " PROJECT_INDEX.dsl
+
+# See directory tree structure
+grep "^T " PROJECT_INDEX.dsl
+
+# Find all parsed files
+grep "^F.*parsed=1" PROJECT_INDEX.dsl
+
+# === FILE INFORMATION ===
+# Check file language and parse status
+grep "^F PATH/TO/FILE" PROJECT_INDEX.dsl
+
+# Find all Python files
+grep "^F.*lang=python" PROJECT_INDEX.dsl
+
+# Check markdown documentation
+grep "^MD" PROJECT_INDEX.dsl
+
+# === CALL CHAIN TRACING ===
+# Find entry points (functions not called by others)
+grep "^FN" PROJECT_INDEX.dsl | grep -v " B=" | grep "DIRECTORY_PATTERN"
+
+# Trace what a function calls recursively
+# 1. Find what TARGET_FUNCTION() calls:
+rg "^FN.*::TARGET_FUNCTION.*C=" PROJECT_INDEX.dsl
+# 2. Then find what those functions call, repeat
+
+# === CODE QUALITY ===
+# Find functions with many dependencies (high complexity)
+grep "^FN" PROJECT_INDEX.dsl | grep "C=" | sort -t'=' -k2 | tail -10
+
+# Find highly coupled functions (called by many)
+grep "^FN" PROJECT_INDEX.dsl | grep "B=" | sort -t'=' -k3 | tail -10
+```
+
+### 🚫 Critical Rules
+- **NEVER load the full PROJECT_INDEX.dsl file** - always query it with grep/rg
+- **Start with tree structure** (T entries) to understand project layout
+- **Search hierarchy**: PROJECT_INDEX.dsl first, then Claude Code default search
+- **Check call relationships** before modifying functions (B= field shows what depends on it)
+- **Follow directory purposes** (D entries) when adding new code
+- **Verify existing functionality** before implementing duplicates
+- **Always indicate usage**: When using PROJECT_INDEX.dsl for navigation, print this line:
+  ```
+  🗂️ [PROJECT_INDEX] Analyzing codebase structure via PROJECT_INDEX.dsl
+  ```
+
+### 🎯 When to Reference
+- **Always start with tree structure** at beginning of session or after codebase changes
+- Before making any code changes (check dependencies and call relationships)
+- When adding new features or functions (find similar existing code)
+- During debugging to trace call paths (follow C= and B= chains)
+- For architectural decisions (understand directory purposes)
+
+If no PROJECT_INDEX.dsl exists and project has >50 files, suggest running `/index` command first.
+
 ## Development Commands
 
 ### Local Development
