@@ -83,6 +83,22 @@ class RedisClient:
         except Exception as e:
             logger.error(f"Redis EXPIRE error for key {key}: {e}")
             return False
+    
+    async def mget(self, *keys: str) -> list:
+        """Get multiple values at once"""
+        try:
+            return await self.redis.mget(*keys)
+        except Exception as e:
+            logger.error(f"Redis MGET error for keys {keys}: {e}")
+            return [None] * len(keys)
+    
+    async def incrby(self, key: str, amount: int = 1) -> int:
+        """Increment by specific amount"""
+        try:
+            return await self.redis.incrby(key, amount)
+        except Exception as e:
+            logger.error(f"Redis INCRBY error for key {key}: {e}")
+            return 0
 
 
 # Global Redis client instance

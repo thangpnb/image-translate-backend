@@ -36,8 +36,8 @@ Understanding PROJECT_INDEX.dsl structure:
 - `FN file::function` - Function definitions
 - `CL file::ClassName` - Class definitions
 - `M file::ClassName.method` - Class method definitions
-- `C=` - Calls these functions/methods
-- `B=` - Called by these functions/methods
+- `C=file:function1,file:ClassName.method1,...` - Calls these functions/methods (comma-separated)
+- `B=file:function1,file:ClassName.method1,...` - Called by these functions/methods (comma-separated)
 - `I` - Imports/dependencies
 - `D` - Directory purposes
 - `T` - Tree structure
@@ -56,35 +56,35 @@ rg "::FUNCTION_NAME" PROJECT_INDEX.dsl
 rg "^CL.*::CLASS_NAME" PROJECT_INDEX.dsl
 
 # List all functions in a file
-grep "^FN PATH/TO/FILE::" PROJECT_INDEX.dsl | cut -d' ' -f2
+grep "^FN PATH/TO/FILE::" PROJECT_INDEX.dsl | cut -d':' -f3 | cut -d' ' -f1
 
 # List all classes in a file  
-grep "^CL PATH/TO/FILE::" PROJECT_INDEX.dsl | cut -d' ' -f2
+grep "^CL PATH/TO/FILE::" PROJECT_INDEX.dsl | cut -d':' -f3 | cut -d' ' -f1
 
 # List all methods of a class
 grep "^M.*::CLASS_NAME\." PROJECT_INDEX.dsl
 
-# Find all functions in specific language
-grep "^FN.*\.py::" PROJECT_INDEX.dsl
+# Find all functions in specific language (Python files)
+rg "^FN.*\.py::" PROJECT_INDEX.dsl
 
 # Find functions/methods with specific patterns
 rg "::(.*PATTERN.*)" PROJECT_INDEX.dsl
 
 # === IMPACT ANALYSIS (Before Changes) ===
 # What calls this function? (who depends on it)
-rg "B=.*FUNCTION_NAME" PROJECT_INDEX.dsl
+rg "B=.*[,:]FUNCTION_NAME" PROJECT_INDEX.dsl
 
 # What does this function call?
 rg "^FN.*::FUNCTION_NAME.*C=" PROJECT_INDEX.dsl
 
-# Find dead code (functions with no callers)
-grep "^FN" PROJECT_INDEX.dsl | grep -v " B="
+# Find dead code (functions with no callers) - CORRECTED
+comm -23 <(grep "^FN" PROJECT_INDEX.dsl | cut -d':' -f3 | cut -d' ' -f1 | sort) <(grep -o "B=[^[:space:]]*" PROJECT_INDEX.dsl | sed 's/.*[,:]//' | sort -u)
 
 # === IMPORTS & DEPENDENCIES ===
 # Find all imports of a module
-rg "^I.*MODULE_NAME" PROJECT_INDEX.dsl | cut -d= -f1
+rg "^I.*MODULE_NAME" PROJECT_INDEX.dsl
 
-# Check file dependencies
+# Check file dependencies  
 grep "^DEP PATH/TO/FILE" PROJECT_INDEX.dsl
 
 # Find files importing specific library
@@ -97,7 +97,7 @@ grep "^D DIRECTORY_PATH" PROJECT_INDEX.dsl
 # View project stats
 grep "^P " PROJECT_INDEX.dsl
 
-# See directory tree structure
+# See directory tree structure  
 grep "^T " PROJECT_INDEX.dsl
 
 # Find all parsed files
@@ -114,20 +114,50 @@ grep "^F.*lang=python" PROJECT_INDEX.dsl
 grep "^MD" PROJECT_INDEX.dsl
 
 # === CALL CHAIN TRACING ===
-# Find entry points (functions not called by others)
-grep "^FN" PROJECT_INDEX.dsl | grep -v " B=" | grep "DIRECTORY_PATTERN"
+# Find entry points (functions not called by others) - CORRECTED
+comm -23 <(grep "^FN" PROJECT_INDEX.dsl | cut -d':' -f3 | cut -d' ' -f1 | sort) <(grep -o "B=[^[:space:]]*" PROJECT_INDEX.dsl | sed 's/.*[,:]//' | sort -u) | head -20
 
 # Trace what a function calls recursively
-# 1. Find what TARGET_FUNCTION() calls:
-rg "^FN.*::TARGET_FUNCTION.*C=" PROJECT_INDEX.dsl
-# 2. Then find what those functions call, repeat
+# 1. Find what TARGET_FUNCTION calls:
+rg "^FN.*::TARGET_FUNCTION.*C=" PROJECT_INDEX.dsl | grep -o "C=[^[:space:]]*" | sed 's/C=//' | tr ',' '\n'
+
+# 2. Then find what those called functions call (repeat process)
+# Example: rg "^FN.*::(FUNCTION_FROM_STEP1).*C=" PROJECT_INDEX.dsl
 
 # === CODE QUALITY ===
-# Find functions with many dependencies (high complexity)
-grep "^FN" PROJECT_INDEX.dsl | grep "C=" | sort -t'=' -k2 | tail -10
+# Find functions with many dependencies (high complexity) - CORRECTED
+grep "^FN.*C=" PROJECT_INDEX.dsl | sed 's/.*C=//' | awk -F',' '{print NF, $0}' | sort -nr | head -10
 
-# Find highly coupled functions (called by many)
-grep "^FN" PROJECT_INDEX.dsl | grep "B=" | sort -t'=' -k3 | tail -10
+# Find highly coupled functions (called by many) - CORRECTED  
+grep -o "B=[^[:space:]]*" PROJECT_INDEX.dsl | sed 's/.*[,:]//' | sort | uniq -c | sort -nr | head -10
+
+# === ADDITIONAL USEFUL QUERIES ===
+# Find all external dependencies
+grep "^DEP" PROJECT_INDEX.dsl | cut -d'=' -f2 | tr ',' '\n' | sort -u
+
+# Find functions that are both callers and callees (hub functions)
+comm -12 <(grep "^FN.*C=" PROJECT_INDEX.dsl | cut -d':' -f3 | cut -d' ' -f1 | sort) <(grep -o "B=[^[:space:]]*" PROJECT_INDEX.dsl | sed 's/.*[,:]//' | sort -u)
+
+# Find circular dependencies (functions that call each other)
+for func in $(grep "^FN.*C=" PROJECT_INDEX.dsl | cut -d':' -f3 | cut -d' ' -f1); do
+  calls=$(rg "^FN.*::$func.*C=" PROJECT_INDEX.dsl | grep -o "C=[^[:space:]]*" | sed 's/C=//' | tr ',' '\n')
+  for called in $calls; do
+    if rg "^FN.*::$called.*C=.*$func" PROJECT_INDEX.dsl >/dev/null; then
+      echo "Circular: $func <-> $called"
+    fi
+  done
+done
+
+# Find most imported modules
+grep "^I" PROJECT_INDEX.dsl | cut -d'=' -f2 | tr ',' '\n' | sort | uniq -c | sort -nr | head -10
+
+# Get complexity metrics per file
+for file in $(grep "^F.*lang=python.*parsed=1" PROJECT_INDEX.dsl | cut -d' ' -f2); do
+  funcs=$(grep "^FN $file::" PROJECT_INDEX.dsl | wc -l)
+  classes=$(grep "^CL $file::" PROJECT_INDEX.dsl | wc -l) 
+  methods=$(grep "^M $file::" PROJECT_INDEX.dsl | wc -l)
+  echo "$file: $funcs functions, $classes classes, $methods methods"
+done
 ```
 
 ### 🚫 Critical Rules
