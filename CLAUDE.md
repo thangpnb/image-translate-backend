@@ -16,186 +16,30 @@ This is a FastAPI backend service for image translation using Gemini API with in
 - **Containerization**: Docker with multi-stage builds
 - **Reverse Proxy**: Nginx with rate limiting and load balancing
 
-## Codebase Navigation & Understanding
-
-### Project Index Usage
-
-When working with this codebase, ALWAYS use the project index for architectural awareness:
-
-### 🔍 First Action: Check for Index
-```bash
-ls PROJECT_INDEX.dsl 2>/dev/null
-```
-
-### 📖 Query the Index (DON'T Load Full File)
-
-#### DSL Format Key:
-Understanding PROJECT_INDEX.dsl structure:
-- `P` - Project metadata (root, indexed_at, file counts)
-- `F` - File entries
-- `FN file::function` - Function definitions
-- `CL file::ClassName` - Class definitions
-- `M file::ClassName.method` - Class method definitions
-- `C=file:function1,file:ClassName.method1,...` - Calls these functions/methods (comma-separated)
-- `B=file:function1,file:ClassName.method1,...` - Called by these functions/methods (comma-separated)
-- `I` - Imports/dependencies
-- `D` - Directory purposes
-- `T` - Tree structure
-- `MD` - Markdown files with section counts
-- `DEP` - Dependencies summary by file
-
-#### Query Examples:
-Use grep/ripgrep to query specific information:
-
-```bash
-# === FINDING FUNCTIONS & CLASSES ===
-# Find specific function or method by name
-rg "::FUNCTION_NAME" PROJECT_INDEX.dsl
-
-# Find specific class
-rg "^CL.*::CLASS_NAME" PROJECT_INDEX.dsl
-
-# List all functions in a file
-grep "^FN PATH/TO/FILE::" PROJECT_INDEX.dsl | cut -d':' -f3 | cut -d' ' -f1
-
-# List all classes in a file  
-grep "^CL PATH/TO/FILE::" PROJECT_INDEX.dsl | cut -d':' -f3 | cut -d' ' -f1
-
-# List all methods of a class
-grep "^M.*::CLASS_NAME\." PROJECT_INDEX.dsl
-
-# Find all functions in specific language (Python files)
-rg "^FN.*\.py::" PROJECT_INDEX.dsl
-
-# Find functions/methods with specific patterns
-rg "::(.*PATTERN.*)" PROJECT_INDEX.dsl
-
-# === IMPACT ANALYSIS (Before Changes) ===
-# What calls this function? (who depends on it)
-rg "B=.*[,:]FUNCTION_NAME" PROJECT_INDEX.dsl
-
-# What does this function call?
-rg "^FN.*::FUNCTION_NAME.*C=" PROJECT_INDEX.dsl
-
-# Find dead code (functions with no callers) - CORRECTED
-comm -23 <(grep "^FN" PROJECT_INDEX.dsl | cut -d':' -f3 | cut -d' ' -f1 | sort) <(grep -o "B=[^[:space:]]*" PROJECT_INDEX.dsl | sed 's/.*[,:]//' | sort -u)
-
-# === IMPORTS & DEPENDENCIES ===
-# Find all imports of a module
-rg "^I.*MODULE_NAME" PROJECT_INDEX.dsl
-
-# Check file dependencies  
-grep "^DEP PATH/TO/FILE" PROJECT_INDEX.dsl
-
-# Find files importing specific library
-rg "^I.*=.*LIBRARY_NAME" PROJECT_INDEX.dsl
-
-# === ARCHITECTURE QUERIES ===
-# Get directory purposes
-grep "^D DIRECTORY_PATH" PROJECT_INDEX.dsl
-
-# View project stats
-grep "^P " PROJECT_INDEX.dsl
-
-# See directory tree structure  
-grep "^T " PROJECT_INDEX.dsl
-
-# Find all parsed files
-grep "^F.*parsed=1" PROJECT_INDEX.dsl
-
-# === FILE INFORMATION ===
-# Check file language and parse status
-grep "^F PATH/TO/FILE" PROJECT_INDEX.dsl
-
-# Find all Python files
-grep "^F.*lang=python" PROJECT_INDEX.dsl
-
-# Check markdown documentation
-grep "^MD" PROJECT_INDEX.dsl
-
-# === CALL CHAIN TRACING ===
-# Find entry points (functions not called by others) - CORRECTED
-comm -23 <(grep "^FN" PROJECT_INDEX.dsl | cut -d':' -f3 | cut -d' ' -f1 | sort) <(grep -o "B=[^[:space:]]*" PROJECT_INDEX.dsl | sed 's/.*[,:]//' | sort -u) | head -20
-
-# Trace what a function calls recursively
-# 1. Find what TARGET_FUNCTION calls:
-rg "^FN.*::TARGET_FUNCTION.*C=" PROJECT_INDEX.dsl | grep -o "C=[^[:space:]]*" | sed 's/C=//' | tr ',' '\n'
-
-# 2. Then find what those called functions call (repeat process)
-# Example: rg "^FN.*::(FUNCTION_FROM_STEP1).*C=" PROJECT_INDEX.dsl
-
-# === CODE QUALITY ===
-# Find functions with many dependencies (high complexity) - CORRECTED
-grep "^FN.*C=" PROJECT_INDEX.dsl | sed 's/.*C=//' | awk -F',' '{print NF, $0}' | sort -nr | head -10
-
-# Find highly coupled functions (called by many) - CORRECTED  
-grep -o "B=[^[:space:]]*" PROJECT_INDEX.dsl | sed 's/.*[,:]//' | sort | uniq -c | sort -nr | head -10
-
-# === ADDITIONAL USEFUL QUERIES ===
-# Find all external dependencies
-grep "^DEP" PROJECT_INDEX.dsl | cut -d'=' -f2 | tr ',' '\n' | sort -u
-
-# Find functions that are both callers and callees (hub functions)
-comm -12 <(grep "^FN.*C=" PROJECT_INDEX.dsl | cut -d':' -f3 | cut -d' ' -f1 | sort) <(grep -o "B=[^[:space:]]*" PROJECT_INDEX.dsl | sed 's/.*[,:]//' | sort -u)
-
-# Find circular dependencies (functions that call each other)
-for func in $(grep "^FN.*C=" PROJECT_INDEX.dsl | cut -d':' -f3 | cut -d' ' -f1); do
-  calls=$(rg "^FN.*::$func.*C=" PROJECT_INDEX.dsl | grep -o "C=[^[:space:]]*" | sed 's/C=//' | tr ',' '\n')
-  for called in $calls; do
-    if rg "^FN.*::$called.*C=.*$func" PROJECT_INDEX.dsl >/dev/null; then
-      echo "Circular: $func <-> $called"
-    fi
-  done
-done
-
-# Find most imported modules
-grep "^I" PROJECT_INDEX.dsl | cut -d'=' -f2 | tr ',' '\n' | sort | uniq -c | sort -nr | head -10
-
-# Get complexity metrics per file
-for file in $(grep "^F.*lang=python.*parsed=1" PROJECT_INDEX.dsl | cut -d' ' -f2); do
-  funcs=$(grep "^FN $file::" PROJECT_INDEX.dsl | wc -l)
-  classes=$(grep "^CL $file::" PROJECT_INDEX.dsl | wc -l) 
-  methods=$(grep "^M $file::" PROJECT_INDEX.dsl | wc -l)
-  echo "$file: $funcs functions, $classes classes, $methods methods"
-done
-```
-
-### 🚫 Critical Rules
-- **NEVER load the full PROJECT_INDEX.dsl file** - always query it with grep/rg
-- **Start with tree structure** (T entries) to understand project layout
-- **Search hierarchy**: PROJECT_INDEX.dsl first, then Claude Code default search
-- **Check call relationships** before modifying functions (B= field shows what depends on it)
-- **Follow directory purposes** (D entries) when adding new code
-- **Verify existing functionality** before implementing duplicates
-- **Always indicate usage**: When using PROJECT_INDEX.dsl for navigation, print this line:
-  ```
-  🗂️ [PROJECT_INDEX] Analyzing codebase structure via PROJECT_INDEX.dsl
-  ```
-
-### 🎯 When to Reference
-- **Always start with tree structure** at beginning of session or after codebase changes
-- Before making any code changes (check dependencies and call relationships)
-- When adding new features or functions (find similar existing code)
-- During debugging to trace call paths (follow C= and B= chains)
-- For architectural decisions (understand directory purposes)
-
-If no PROJECT_INDEX.dsl exists and project has >50 files, suggest running `/index` command first.
-
 ## Development Commands
 
 ### Local Development
 ```bash
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # Install dependencies
-pip install -r requirements.txt
+uv sync
 
 # Run Redis (required)
 docker run -d -p 6379:6379 redis:8-alpine
 
 # Run development server
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Alternative: run main module directly
-python app/main.py
+uv run python app/main.py
+
+# Install development dependencies
+uv sync --dev
+
+# Run tests
+uv run pytest
 ```
 
 ### Docker Development
@@ -373,3 +217,4 @@ curl http://localhost:8000/api/v1/languages
 - `docker/`: Container configurations for different environments
 - `nginx/`: Production reverse proxy configuration
 - `config/`: Application configuration files
+- Do not read and change code in "tests" directory

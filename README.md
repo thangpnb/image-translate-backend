@@ -62,14 +62,17 @@ docker compose -f docker/docker-compose.yml logs -f app
 ### 4. Run Locally
 
 ```bash
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # Install dependencies
-pip install -r requirements.txt
+uv sync
 
 # Start Redis (required)
-docker run -d -p 6379:6379 redis:7-alpine
+docker run -d -p 6379:6379 redis:8-alpine
 
 # Run the application
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ## API Endpoints
@@ -200,29 +203,29 @@ image-translation-backend/
 ├── docker/                  # Docker configuration
 ├── nginx/                   # Nginx configuration  
 ├── config/                  # Configuration files
-└── requirements.txt         # Python dependencies
+└── pyproject.toml           # Project dependencies and configuration
 ```
 
 ### Running Tests
 
 ```bash
-# Install test dependencies
-pip install pytest pytest-asyncio httpx
+# Install development dependencies (including test dependencies)
+uv sync --dev
 
 # Run tests (when implemented)
-pytest
+uv run pytest
 ```
 
 ### Code Quality
 
 ```bash
-# Format code
-black app/
-isort app/
+# Format code (if you add these tools to dev dependencies)
+uv run black app/
+uv run isort app/
 
-# Lint
-flake8 app/
-mypy app/
+# Lint (if you add these tools to dev dependencies)  
+uv run flake8 app/
+uv run mypy app/
 ```
 
 ## Production Deployment
@@ -303,7 +306,7 @@ Configure per-key limits in `config/api_keys.json`:
 ### Common Issues
 
 1. **Redis Connection Failed**
-   - Ensure Redis is running: `docker run -d -p 6379:6379 redis:7-alpine`
+   - Ensure Redis is running: `docker run -d -p 6379:6379 redis:8-alpine`
    - Check Redis configuration in `.env`
 
 2. **API Key Errors**

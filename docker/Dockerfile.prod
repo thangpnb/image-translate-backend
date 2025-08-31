@@ -7,6 +7,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
 # Install build dependencies
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -15,9 +18,12 @@ RUN apt-get update \
         libmagic-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels -r requirements.txt
+# Set work directory
+WORKDIR /app
+
+# Copy pyproject.toml and build dependencies
+COPY pyproject.toml .
+RUN uv sync --frozen --no-dev
 
 # Production stage
 FROM python:3.11-slim as production
@@ -26,6 +32,9 @@ FROM python:3.11-slim as production
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONHASHSEED=random
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 # Install runtime dependencies
 RUN apt-get update \
@@ -40,10 +49,9 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 # Set work directory
 WORKDIR /app
 
-# Copy wheels and install
-COPY --from=builder /wheels /wheels
-COPY requirements.txt .
-RUN pip install --no-cache /wheels/*
+# Copy built environment from builder
+COPY --from=builder /app/.venv /app/.venv
+COPY pyproject.toml .
 
 # Copy application code
 COPY . .
@@ -64,4 +72,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Use gunicorn for production
-CMD ["gunicorn", "app.main:app", "-c", "config/gunicorn.conf.py"]
+CMD ["uv", "run", "gunicorn", "app.main:app", "-c", "config/gunicorn.conf.py"]
