@@ -195,26 +195,41 @@ async def get_translation_result(
         raise HTTPException(status_code=500, detail="Error checking task status")
 
 
-@router.get("/health", response_model=HealthResponse)
+@router.get("/health")
 async def health_check():
     """
     Comprehensive health check endpoint
     """
     try:
+        print("=== HEALTH CHECK STARTING ===")
+        logger.info("Starting health check")
+        
         # Check Redis connection
         redis_connected = False
         if redis_client.redis:
             try:
                 await redis_client.redis.ping()
                 redis_connected = True
-            except Exception:
-                pass
+                logger.info("Redis connection: OK")
+                print("Redis: OK")
+            except Exception as e:
+                logger.warning(f"Redis connection failed: {e}")
+                print(f"Redis failed: {e}")
+        else:
+            logger.warning("Redis client not initialized")
+            print("Redis client not initialized")
         
         # Check Gemini service
+        logger.info("Checking Gemini service...")
+        print("Checking Gemini...")
         gemini_healthy, gemini_status = await gemini_service.health_check()
+        logger.info(f"Gemini service: {gemini_healthy}, status: {gemini_status}")
+        print(f"Gemini: {gemini_healthy}, {gemini_status}")
         
         # Get API keys count
         api_keys_count = len(api_key_manager.keys)
+        logger.info(f"API keys count: {api_keys_count}")
+        print(f"API keys: {api_keys_count}")
         
         status = "healthy"
         if not redis_connected:
@@ -224,31 +239,36 @@ async def health_check():
         if api_keys_count == 0:
             status = "unhealthy"
         
-        logger.info(f"Health check: {status}", extra={
+        logger.info(f"Health check completed: {status}", extra={
             "redis_connected": redis_connected,
             "gemini_healthy": gemini_healthy,
             "api_keys_count": api_keys_count
         })
         
-        return HealthResponse(
-            status=status,
-            service="image-translation-backend",
-            version="1.0.0",
-            redis_connected=redis_connected,
-            gemini_healthy=gemini_healthy,
-            api_keys_count=api_keys_count
-        )
+        result = {
+            "status": status,
+            "service": "image-translation-backend",
+            "version": "1.0.0",
+            "redis_connected": redis_connected,
+            "gemini_healthy": gemini_healthy,
+            "api_keys_count": api_keys_count
+        }
+        print(f"Returning: {result}")
+        return result
     
     except Exception as e:
+        print(f"=== HEALTH CHECK EXCEPTION: {e} ===")
         logger.error(f"Health check failed: {e}")
-        return HealthResponse(
-            status="unhealthy",
-            service="image-translation-backend",
-            version="1.0.0",
-            redis_connected=False,
-            gemini_healthy=False,
-            api_keys_count=0
-        )
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "unhealthy",
+            "service": "image-translation-backend",
+            "version": "1.0.0",
+            "redis_connected": False,
+            "gemini_healthy": False,
+            "api_keys_count": 0
+        }
 
 
 @router.get("/metrics", response_model=MetricsResponse)

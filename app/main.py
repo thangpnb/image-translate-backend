@@ -133,22 +133,99 @@ app.include_router(router, prefix="/api/v1")
 # Health check endpoint (outside of API versioning)
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "service": "image-translation-backend",
-        "version": "1.0.0"
-    }
+    """
+    Comprehensive health check endpoint
+    """
+    from .services.gemini_service import gemini_service
+    from .services.key_rotation import api_key_manager
+    
+    try:
+        # Check Redis connection
+        redis_connected = False
+        if redis_client.redis:
+            try:
+                await redis_client.redis.ping()
+                redis_connected = True
+            except Exception:
+                pass
+        
+        # Check Gemini service
+        gemini_healthy, gemini_status = await gemini_service.health_check()
+        
+        # Get API keys count
+        api_keys_count = len(api_key_manager.keys)
+        
+        status = "healthy"
+        if not redis_connected:
+            status = "degraded"
+        if not gemini_healthy:
+            status = "unhealthy"
+        if api_keys_count == 0:
+            status = "unhealthy"
+        
+        return {
+            "status": status,
+            "service": "image-translation-backend",
+            "version": "1.0.0",
+            "redis_connected": redis_connected,
+            "gemini_healthy": gemini_healthy,
+            "api_keys_count": api_keys_count
+        }
+    
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "unhealthy",
+            "service": "image-translation-backend",
+            "version": "1.0.0",
+            "redis_connected": False,
+            "gemini_healthy": False,
+            "api_keys_count": 0
+        }
+
 
 # Metrics endpoint for monitoring
 @app.get("/metrics")
 async def metrics():
-    """Basic metrics endpoint"""
-    # Could be extended with actual metrics
-    return {
-        "status": "ok",
-        "redis_connected": redis_client.redis is not None
-    }
+    """
+    Get comprehensive service metrics
+    """
+    from .services.gemini_service import gemini_service
+    from .services.key_rotation import api_key_manager
+    
+    try:
+        # Check Redis connection
+        redis_connected = False
+        if redis_client.redis:
+            try:
+                await redis_client.redis.ping()
+                redis_connected = True
+            except Exception:
+                pass
+        
+        # Get active keys count (keys that are not marked as failed)
+        active_keys = 0
+        for key_info in api_key_manager.keys:
+            if not await api_key_manager.is_key_failed(key_info):
+                active_keys += 1
+        
+        # Get worker pool stats
+        worker_stats = await worker_pool.get_stats()
+        
+        return {
+            "status": "ok",
+            "redis_connected": redis_connected,
+            "active_keys": active_keys,
+            "total_requests": worker_stats.get("tasks_processed", 0)
+        }
+    
+    except Exception as e:
+        logger.error(f"Metrics collection failed: {e}")
+        return {
+            "status": "error",
+            "redis_connected": False,
+            "active_keys": 0
+        }
 
 
 if __name__ == "__main__":
