@@ -208,19 +208,19 @@ class TaskManager:
             if current_queue_position == 0:
                 return 0
             
-            # Estimate based on average processing time and current worker capacity
-            # This is a rough estimate - could be made more sophisticated
-            avg_processing_time = 30  # seconds
+            # Estimate based on average processing time per image (2-3 seconds)
+            avg_processing_time_per_image = 2.5  # seconds (average of 2-3 seconds)
             estimated_workers = max(1, await self.get_processing_count())
             
+            # Each task contains 1 image, so processing time per task is same as per image
             # Estimate wait time based on queue position and worker capacity
-            estimated_wait = (current_queue_position * avg_processing_time) // estimated_workers
+            estimated_wait = (current_queue_position * avg_processing_time_per_image) // estimated_workers
             
-            return min(max(estimated_wait, 5), 300)  # Between 5 seconds and 5 minutes
+            return min(max(estimated_wait, 2), 120)  # Between 2 seconds and 2 minutes
             
         except Exception as e:
             logger.error(f"Error estimating wait time: {e}")
-            return 60  # Default 1 minute
+            return 10  # Default 10 seconds
     
     async def cleanup_stale_tasks(self, max_processing_time: int = 600) -> int:
         """Clean up stale processing tasks (older than max_processing_time seconds)"""

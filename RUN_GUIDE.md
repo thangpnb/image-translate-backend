@@ -85,10 +85,7 @@ TASK_RETENTION_TIME=180
 #### 1. Create Translation Task
 ```bash
 # Create task (returns immediately with task_id)
-curl -X POST "http://localhost:8000/api/v1/translate" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@test_image.jpg" \
-  -F "target_language=Vietnamese"
+curl -X POST "http://localhost:8000/api/v1/translate" -H "Content-Type: multipart/form-data" -F "file=@/home/twinb/Downloads/image_test2.png" -F "target_language=Vietnamese" 
 
 # Response example:
 # {
@@ -101,7 +98,7 @@ curl -X POST "http://localhost:8000/api/v1/translate" \
 #### 2. Poll for Results
 ```bash
 # Long polling (waits up to 60 seconds)
-curl "http://localhost:8000/api/v1/result/abc123-def456-789"
+curl "http://localhost:8000/api/v1/result/8985b236-8b7e-4cec-8a4a-4576dd3a0f37"
 
 # Response (completed):
 # {
