@@ -1,4 +1,5 @@
 import os
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +9,8 @@ from loguru import logger
 from .core.config import settings
 from .core.logging import setup_logging
 from .core.redis_client import redis_client
+from .services.worker_pool import worker_pool
+from .services.task_manager import task_manager
 from .middleware.request_id import RequestIDMiddleware
 from .middleware.security_headers import SecurityHeadersMiddleware
 from .middleware.rate_limiting import RateLimitMiddleware
@@ -16,6 +19,18 @@ from .middleware.timeout import TimeoutMiddleware
 from .middleware.logging import LoggingMiddleware
 from .middleware.error_handler import ErrorHandlerMiddleware
 from .api.routes import router
+
+
+async def _cleanup_task():
+    """Background task to cleanup stale processing tasks"""
+    while True:
+        try:
+            await asyncio.sleep(300)  # Run every 5 minutes
+            cleanup_count = await task_manager.cleanup_stale_tasks()
+            if cleanup_count > 0:
+                logger.info(f"Cleaned up {cleanup_count} stale tasks")
+        except Exception as e:
+            logger.error(f"Error in cleanup task: {e}")
 
 
 @asynccontextmanager
@@ -32,9 +47,20 @@ async def lifespan(app: FastAPI):
     # Connect to Redis
     try:
         await redis_client.connect()
+        logger.info("Redis connected successfully")
     except Exception as e:
         logger.error(f"Failed to connect to Redis: {e}")
         # Continue without Redis for development
+    
+    # Start worker pool
+    try:
+        await worker_pool.start()
+        logger.info("Worker pool started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start worker pool: {e}")
+        
+    # Start cleanup task for stale tasks
+    asyncio.create_task(_cleanup_task())
         
     logger.info("Application startup complete")
     
@@ -42,6 +68,15 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down Image Translation Backend")
+    
+    # Stop worker pool
+    try:
+        await worker_pool.stop()
+        logger.info("Worker pool stopped")
+    except Exception as e:
+        logger.error(f"Error stopping worker pool: {e}")
+    
+    # Disconnect Redis
     await redis_client.disconnect()
     logger.info("Application shutdown complete")
 

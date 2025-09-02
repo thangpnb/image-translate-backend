@@ -31,7 +31,8 @@ services:
       - REDIS_PORT=6379
       - LOG_LEVEL=DEBUG
     volumes:
-      - ../:/app
+      - ../app:/app/app:ro
+      - ../config:/app/config:ro
       - app_logs:/app/logs
     depends_on:
       redis:

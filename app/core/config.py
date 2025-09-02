@@ -39,6 +39,17 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_ROTATION: str = "00:00"  # Time-based rotation (daily at midnight)
     LOG_RETENTION_DAYS: int = 7
+    
+    # Worker Pool Configuration
+    MIN_WORKERS: int = 50
+    MAX_WORKERS: int = 1000
+    WORKER_SCALE_CHECK_INTERVAL: int = 10  # seconds
+    WORKER_IDLE_THRESHOLD: int = 120  # seconds before worker considered idle
+    
+    # Long Polling Configuration
+    POLLING_TIMEOUT: int = 60  # seconds
+    POLLING_CHECK_INTERVAL: float = 0.5  # seconds
+    TASK_RETENTION_TIME: int = 86400  # 24 hours in seconds
 
     class Config:
         env_file = ".env"

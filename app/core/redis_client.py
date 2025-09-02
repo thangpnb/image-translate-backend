@@ -15,7 +15,7 @@ class RedisClient:
                 settings.redis_url,
                 encoding="utf-8",
                 decode_responses=True,
-                max_connections=20,
+                max_connections=200,
                 retry_on_timeout=True
             )
             
@@ -99,6 +99,62 @@ class RedisClient:
         except Exception as e:
             logger.error(f"Redis INCRBY error for key {key}: {e}")
             return 0
+    
+    async def lpush(self, key: str, *values) -> int:
+        """Push values to left side of list"""
+        try:
+            return await self.redis.lpush(key, *values)
+        except Exception as e:
+            logger.error(f"Redis LPUSH error for key {key}: {e}")
+            return 0
+    
+    async def rpop(self, key: str) -> Optional[str]:
+        """Pop value from right side of list"""
+        try:
+            return await self.redis.rpop(key)
+        except Exception as e:
+            logger.error(f"Redis RPOP error for key {key}: {e}")
+            return None
+    
+    async def llen(self, key: str) -> int:
+        """Get length of list"""
+        try:
+            return await self.redis.llen(key)
+        except Exception as e:
+            logger.error(f"Redis LLEN error for key {key}: {e}")
+            return 0
+    
+    async def sadd(self, key: str, *values) -> int:
+        """Add values to set"""
+        try:
+            return await self.redis.sadd(key, *values)
+        except Exception as e:
+            logger.error(f"Redis SADD error for key {key}: {e}")
+            return 0
+    
+    async def srem(self, key: str, *values) -> int:
+        """Remove values from set"""
+        try:
+            return await self.redis.srem(key, *values)
+        except Exception as e:
+            logger.error(f"Redis SREM error for key {key}: {e}")
+            return 0
+    
+    async def scard(self, key: str) -> int:
+        """Get cardinality (size) of set"""
+        try:
+            return await self.redis.scard(key)
+        except Exception as e:
+            logger.error(f"Redis SCARD error for key {key}: {e}")
+            return 0
+    
+    async def smembers(self, key: str) -> set:
+        """Get all members of set"""
+        try:
+            return await self.redis.smembers(key)
+        except Exception as e:
+            logger.error(f"Redis SMEMBERS error for key {key}: {e}")
+            return set()
 
 
 # Global Redis client instance

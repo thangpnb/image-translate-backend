@@ -1,5 +1,6 @@
 import time
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
+import asyncio
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request, Path
 from fastapi.responses import JSONResponse
 import magic
 from loguru import logger
@@ -8,10 +9,15 @@ from ..models.schemas import (
     ErrorResponse, 
     HealthResponse, 
     MetricsResponse,
-    TranslationLanguage
+    TranslationLanguage,
+    TaskCreationResponse,
+    TaskResultResponse,
+    TaskStatus
 )
 from ..services.gemini_service import gemini_service
 from ..services.key_rotation import api_key_manager
+from ..services.task_manager import task_manager
+from ..services.worker_pool import worker_pool
 from ..core.redis_client import redis_client
 from ..core.config import settings
 
@@ -28,8 +34,8 @@ ALLOWED_MIME_TYPES = {
 }
 
 
-@router.post("/translate", response_model=TranslationResponse)
-async def translate_image(
+@router.post("/translate", response_model=TaskCreationResponse)
+async def create_translation_task(
     request: Request,
     file: UploadFile = File(..., description="Image file to translate"),
     target_language: TranslationLanguage = Form(
@@ -38,12 +44,11 @@ async def translate_image(
     )
 ):
     """
-    Translate text in uploaded image to target language
+    Create a translation task and return task_id for polling
     """
-    start_time = time.time()
     request_id = getattr(request.state, 'request_id', 'unknown')
     
-    logger.info(f"Translation request received", extra={
+    logger.info(f"Translation task creation request", extra={
         "request_id": request_id,
         "filename": file.filename,
         "content_type": file.content_type,
@@ -87,57 +92,107 @@ async def translate_image(
             "mime_type": mime_type
         })
         
-        # Perform translation
-        success, result, error = await gemini_service.translate_image(
-            file_content, 
-            target_language.value
+        # Create translation task
+        task = await task_manager.create_task(file_content, target_language.value)
+        
+        # Estimate processing time based on current queue length
+        estimated_wait_time = await task_manager.estimate_wait_time()
+        
+        logger.info(f"Created translation task {task.task_id}", extra={
+            "request_id": request_id,
+            "task_id": task.task_id,
+            "target_language": target_language.value,
+            "estimated_wait_time": estimated_wait_time
+        })
+        
+        return TaskCreationResponse(
+            task_id=task.task_id,
+            status=TaskStatus.PENDING,
+            estimated_processing_time=estimated_wait_time
         )
-        
-        processing_time = time.time() - start_time
-        
-        if success:
-            logger.info(f"Translation completed successfully", extra={
-                "request_id": request_id,
-                "processing_time": processing_time,
-                "result_length": len(result)
-            })
-            
-            return TranslationResponse(
-                success=True,
-                translated_text=result,
-                target_language=target_language.value,
-                request_id=request_id,
-                processing_time=round(processing_time, 3)
-            )
-        else:
-            logger.error(f"Translation failed: {error}", extra={"request_id": request_id})
-            
-            return TranslationResponse(
-                success=False,
-                translated_text=None,
-                target_language=target_language.value,
-                request_id=request_id,
-                processing_time=round(processing_time, 3),
-                error=error
-            )
     
     except HTTPException:
         raise
     except Exception as e:
-        processing_time = time.time() - start_time
-        logger.error(f"Unexpected error in translation: {e}", extra={
-            "request_id": request_id,
-            "processing_time": processing_time
+        logger.error(f"Unexpected error creating translation task: {e}", extra={
+            "request_id": request_id
         })
+        raise HTTPException(status_code=500, detail="Failed to create translation task")
+
+
+@router.get("/result/{task_id}", response_model=TaskResultResponse)
+async def get_translation_result(
+    task_id: str = Path(..., description="Task ID to check"),
+    timeout: int = 60
+):
+    """
+    Get translation result with long polling support
+    """
+    if timeout > settings.POLLING_TIMEOUT:
+        timeout = settings.POLLING_TIMEOUT
+    
+    start_time = time.time()
+    
+    logger.info(f"Polling request for task {task_id} with timeout {timeout}s")
+    
+    try:
+        while time.time() - start_time < timeout:
+            # Get current task status
+            task = await task_manager.get_task(task_id)
+            
+            if not task:
+                raise HTTPException(status_code=404, detail="Task not found")
+            
+            # If task is completed or failed, return immediately
+            if task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
+                success = task.status == TaskStatus.COMPLETED
+                
+                logger.info(f"Task {task_id} final status: {task.status.value}")
+                
+                return TaskResultResponse(
+                    task_id=task.task_id,
+                    status=task.status,
+                    success=success,
+                    translated_text=task.translated_text,
+                    target_language=task.target_language,
+                    created_at=task.created_at,
+                    started_at=task.started_at,
+                    completed_at=task.completed_at,
+                    processing_time=task.processing_time,
+                    error=task.error
+                )
+            
+            # Task is still pending or processing, wait before checking again
+            await asyncio.sleep(settings.POLLING_CHECK_INTERVAL)
         
-        return TranslationResponse(
-            success=False,
+        # Timeout reached, return current status with estimated wait time
+        task = await task_manager.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        estimated_wait_time = await task_manager.estimate_wait_time()
+        
+        logger.info(f"Polling timeout for task {task_id}, status: {task.status.value}")
+        
+        return TaskResultResponse(
+            task_id=task.task_id,
+            status=task.status,
+            success=None,
             translated_text=None,
-            target_language=target_language.value,
-            request_id=request_id,
-            processing_time=round(processing_time, 3),
-            error="Internal server error"
+            target_language=task.target_language,
+            created_at=task.created_at,
+            started_at=task.started_at,
+            completed_at=None,
+            processing_time=None,
+            error=None,
+            estimated_wait_time=estimated_wait_time
         )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error polling task {task_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error checking task status")
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -217,10 +272,17 @@ async def get_metrics():
             if not await api_key_manager.is_key_failed(key_info):
                 active_keys += 1
         
+        # Get worker pool stats
+        worker_stats = await worker_pool.get_stats()
+        
+        # Get queue stats
+        queue_stats = await task_manager.get_queue_stats()
+        
         return MetricsResponse(
             status="ok",
             redis_connected=redis_connected,
-            active_keys=active_keys
+            active_keys=active_keys,
+            total_requests=worker_stats.get("tasks_processed", 0)
         )
     
     except Exception as e:
@@ -248,3 +310,45 @@ async def get_supported_languages():
         "supported_languages": languages,
         "default": TranslationLanguage.VIETNAMESE.value
     }
+
+
+@router.get("/stats")
+async def get_queue_stats():
+    """
+    Get comprehensive queue and worker statistics
+    """
+    try:
+        # Get queue stats
+        queue_stats = await task_manager.get_queue_stats()
+        
+        # Get worker pool stats
+        worker_stats = await worker_pool.get_stats()
+        
+        # Get active API keys count
+        active_keys = 0
+        for key_info in api_key_manager.keys:
+            if not await api_key_manager.is_key_failed(key_info):
+                active_keys += 1
+        
+        return {
+            "queue": queue_stats,
+            "workers": worker_stats,
+            "api_keys": {
+                "total": len(api_key_manager.keys),
+                "active": active_keys
+            },
+            "capacity_estimate": {
+                "requests_per_minute": active_keys * 60,  # Rough estimate
+                "max_workers": settings.MAX_WORKERS,
+                "current_workers": worker_stats.get("total_workers", 0)
+            }
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting stats: {e}")
+        return {
+            "error": "Failed to get statistics",
+            "queue": {"pending": 0, "processing": 0, "total": 0},
+            "workers": {"total_workers": 0, "active_workers": 0},
+            "api_keys": {"total": 0, "active": 0}
+        }

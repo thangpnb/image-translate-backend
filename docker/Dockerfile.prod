@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for production
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -21,17 +21,18 @@ RUN apt-get update \
 # Set work directory
 WORKDIR /app
 
-# Copy pyproject.toml and build dependencies
-COPY pyproject.toml .
+# Copy pyproject.toml and uv.lock, then build dependencies
+COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 # Production stage
-FROM python:3.11-slim as production
+FROM python:3.11-slim AS production
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONHASHSEED=random
+    PYTHONHASHSEED=random \
+    UV_CACHE_DIR=/app/.uv-cache
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
@@ -43,21 +44,21 @@ RUN apt-get update \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app user
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Create app user with home directory
+RUN groupadd -r appuser && useradd -r -g appuser -m appuser
 
 # Set work directory
 WORKDIR /app
 
 # Copy built environment from builder
 COPY --from=builder /app/.venv /app/.venv
-COPY pyproject.toml .
+COPY pyproject.toml uv.lock ./
 
 # Copy application code
 COPY . .
 
-# Create logs directory with proper permissions
-RUN mkdir -p logs \
+# Create logs and cache directories with proper permissions
+RUN mkdir -p logs .uv-cache \
     && chown -R appuser:appuser /app \
     && chmod -R 755 /app
 
