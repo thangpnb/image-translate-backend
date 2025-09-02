@@ -83,11 +83,15 @@ TASK_RETENTION_TIME=180
 ### Basic Long Polling Workflow
 
 #### 1. Create Translation Task
+
+**Single Image:**
 ```bash
 # Create task (returns immediately with task_id)
-curl -X POST "http://localhost:8000/api/v1/translate" -H "Content-Type: multipart/form-data" -F "file=@/home/twinb/Downloads/image_test2.png" -F "target_language=Vietnamese" 
+curl -X POST "http://localhost:8000/api/v1/translate" \
+  -F "file=@test_image.jpg" \
+  -F "target_language=Vietnamese" 
 
-# Response example:
+# Response:
 # {
 #   "task_id": "abc123-def456-789",
 #   "status": "pending",
@@ -95,10 +99,29 @@ curl -X POST "http://localhost:8000/api/v1/translate" -H "Content-Type: multipar
 # }
 ```
 
+**Multiple Images:**
+```bash
+# Create batch task (1-10 images)
+curl -X POST "http://localhost:8000/api/v1/translate" \
+  -F "files=@image1.jpg" \
+  -F "files=@image2.jpg" \
+  -F "files=@image3.jpg" \
+  -F "target_language=Vietnamese"
+
+# Response:
+# {
+#   "task_id": "batch-abc123-def456",
+#   "status": "pending", 
+#   "estimated_processing_time": 90
+# }
+```
+
 #### 2. Poll for Results
+
+**Single Image Results:**
 ```bash
 # Long polling (waits up to 60 seconds)
-curl "http://localhost:8000/api/v1/result/8985b236-8b7e-4cec-8a4a-4576dd3a0f37"
+curl "http://localhost:8000/api/v1/result/abc123-def456-789"
 
 # Response (completed):
 # {
@@ -109,12 +132,41 @@ curl "http://localhost:8000/api/v1/result/8985b236-8b7e-4cec-8a4a-4576dd3a0f37"
 #   "target_language": "Vietnamese",
 #   "processing_time": 25.3
 # }
+```
 
-# Response (still processing):
+**Multiple Images Progressive Results:**
+```bash
+# Poll for batch results (progressive updates)
+curl "http://localhost:8000/api/v1/result/batch-abc123-def456"
+
+# Response (partial completion):
 # {
-#   "task_id": "abc123-def456-789", 
+#   "task_id": "batch-abc123-def456",
 #   "status": "processing",
-#   "estimated_wait_time": 15
+#   "partial_results": [
+#     {
+#       "index": 0,
+#       "status": "completed",
+#       "translated_text": "Ảnh đầu tiên đã dịch",
+#       "completed_at": "2025-01-01T10:30:00Z",
+#       "processing_time": 12.5
+#     },
+#     {
+#       "index": 1,
+#       "status": "completed", 
+#       "translated_text": "Ảnh thứ hai đã dịch",
+#       "completed_at": "2025-01-01T10:30:15Z",
+#       "processing_time": 15.2
+#     },
+#     {
+#       "index": 2,
+#       "status": "processing"
+#     }
+#   ],
+#   "completed_images": 2,
+#   "total_images": 3,
+#   "progress_percentage": 66.67,
+#   "estimated_wait_time": 20
 # }
 ```
 
@@ -199,15 +251,22 @@ curl http://localhost:8000/api/v1/languages
 
 #### Create Multiple Tasks
 ```bash
-# Create 10 tasks simultaneously
+# Create 10 single-image tasks simultaneously
 for i in {1..10}; do
   curl -X POST "http://localhost:8000/api/v1/translate" \
-    -H "Content-Type: multipart/form-data" \
     -F "file=@test_image.jpg" \
     -F "target_language=Vietnamese" &
 done
+wait
 
-# Wait for all to complete
+# Create multiple batch tasks
+for i in {1..5}; do
+  curl -X POST "http://localhost:8000/api/v1/translate" \
+    -F "files=@image1.jpg" \
+    -F "files=@image2.jpg" \
+    -F "files=@image3.jpg" \
+    -F "target_language=Vietnamese" &
+done
 wait
 ```
 
@@ -228,7 +287,7 @@ done
 
 #### Test All Languages
 ```bash
-# Test each supported language
+# Test single image with different languages
 languages=("Vietnamese" "English" "Japanese" "Korean" "Spanish")
 
 for lang in "${languages[@]}"; do
@@ -238,13 +297,43 @@ for lang in "${languages[@]}"; do
     -F "target_language=$lang"
   echo ""
 done
+
+# Test multiple images with different languages
+for lang in "${languages[@]}"; do
+  echo "Testing multiple images with $lang..."
+  curl -X POST "http://localhost:8000/api/v1/translate" \
+    -F "files=@test1.jpg" \
+    -F "files=@test2.jpg" \
+    -F "target_language=$lang"
+  echo ""
+done
 ```
 
 #### Error Handling Test
 ```bash
-# Test invalid file type
+# Test invalid file type (single)
 curl -X POST "http://localhost:8000/api/v1/translate" \
   -F "file=@test.txt" \
+  -F "target_language=Vietnamese"
+
+# Test invalid file type (multiple)
+curl -X POST "http://localhost:8000/api/v1/translate" \
+  -F "files=@test.txt" \
+  -F "files=@valid.jpg" \
+  -F "target_language=Vietnamese"
+
+# Test too many files (>10)
+curl -X POST "http://localhost:8000/api/v1/translate" \
+  -F "files=@1.jpg" -F "files=@2.jpg" -F "files=@3.jpg" \
+  -F "files=@4.jpg" -F "files=@5.jpg" -F "files=@6.jpg" \
+  -F "files=@7.jpg" -F "files=@8.jpg" -F "files=@9.jpg" \
+  -F "files=@10.jpg" -F "files=@11.jpg" \
+  -F "target_language=Vietnamese"
+
+# Test file too large (simulate with large file)
+dd if=/dev/zero of=large_file.jpg bs=1M count=60  # 60MB file
+curl -X POST "http://localhost:8000/api/v1/translate" \
+  -F "file=@large_file.jpg" \
   -F "target_language=Vietnamese"
 
 # Test missing file
@@ -257,10 +346,31 @@ curl "http://localhost:8000/api/v1/result/invalid-task-id"
 
 #### Performance Benchmarking
 ```bash
-# Benchmark task creation speed
+# Benchmark single image task creation
 time for i in {1..50}; do
   curl -s -X POST "http://localhost:8000/api/v1/translate" \
     -F "file=@test.jpg" -F "target_language=Vietnamese" >/dev/null &
+done
+wait
+
+# Benchmark multiple images task creation
+time for i in {1..20}; do
+  curl -s -X POST "http://localhost:8000/api/v1/translate" \
+    -F "files=@test1.jpg" -F "files=@test2.jpg" -F "files=@test3.jpg" \
+    -F "target_language=Vietnamese" >/dev/null &
+done
+wait
+
+# Mixed workload benchmark
+for i in {1..30}; do
+  # Single image tasks
+  curl -s -X POST "http://localhost:8000/api/v1/translate" \
+    -F "file=@single.jpg" -F "target_language=Vietnamese" >/dev/null &
+  
+  # Multiple images tasks
+  curl -s -X POST "http://localhost:8000/api/v1/translate" \
+    -F "files=@multi1.jpg" -F "files=@multi2.jpg" \
+    -F "target_language=Vietnamese" >/dev/null &
 done
 wait
 

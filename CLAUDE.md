@@ -115,6 +115,7 @@ Copy from `.env.example` and configure Redis, rate limits, and server settings.
 
 ## Key Features
 - **File Support**: JPEG, PNG, GIF, WebP, BMP, TIFF with size validation
+- **Multiple Images**: 1-10 images per request with progressive results
 - **Security**: Input validation, OWASP headers, timeout handling
 - **Monitoring**: Task tracking, worker metrics, queue statistics, auto-cleanup
 - **Performance**: Async processing, connection pooling, image optimization
@@ -135,11 +136,15 @@ Copy from `.env.example` and configure Redis, rate limits, and server settings.
 
 ### Testing API Endpoints
 ```bash
-# Create task (immediate response)
+# Single image (existing)
 curl -X POST "http://localhost:8000/api/v1/translate" \
   -F "file=@test.jpg" -F "target_language=Vietnamese"
 
-# Poll result (60s timeout)
+# Multiple images (new feature)
+curl -X POST "http://localhost:8000/api/v1/translate" \
+  -F "files=@image1.jpg" -F "files=@image2.jpg" -F "target_language=Vietnamese"
+
+# Poll result (60s timeout, progressive results)
 curl "http://localhost:8000/api/v1/result/{task_id}"
 
 # Check stats
