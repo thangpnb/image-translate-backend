@@ -1,6 +1,7 @@
 import time
 import asyncio
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request, Path
+from typing import List
 from fastapi.responses import JSONResponse
 import magic
 from loguru import logger
@@ -37,7 +38,8 @@ ALLOWED_MIME_TYPES = {
 @router.post("/translate", response_model=TaskCreationResponse)
 async def create_translation_task(
     request: Request,
-    file: UploadFile = File(..., description="Image file to translate"),
+    files: List[UploadFile] = File(None, description="Image files to translate (1-10 images)"),
+    file: UploadFile = File(None, description="Single image file (backward compatibility)"),
     target_language: TranslationLanguage = Form(
         default=TranslationLanguage.VIETNAMESE,
         description="Target language for translation"
@@ -50,50 +52,83 @@ async def create_translation_task(
     
     logger.info(f"Translation task creation request", extra={
         "request_id": request_id,
-        "filename": file.filename,
-        "content_type": file.content_type,
         "target_language": target_language.value
     })
     
     try:
-        # Validate file
-        if not file:
-            raise HTTPException(status_code=400, detail="No file provided")
+        # Handle both single file (backward compatibility) and multiple files
+        upload_files = []
+        if files:
+            upload_files = files
+        elif file:
+            upload_files = [file]
+        else:
+            raise HTTPException(status_code=400, detail="No file(s) provided")
         
-        # Read file content
-        file_content = await file.read()
-        file_size = len(file_content)
+        # Validate number of files
+        if len(upload_files) == 0:
+            raise HTTPException(status_code=400, detail="No file(s) provided")
+        if len(upload_files) > 10:
+            raise HTTPException(status_code=400, detail="Maximum 10 images allowed per request")
         
-        # Check file size
-        if file_size > settings.MAX_UPLOAD_SIZE:
-            logger.warning(f"File too large: {file_size} bytes", extra={"request_id": request_id})
+        # Process and validate all files
+        processed_files = []
+        total_size = 0
+        
+        for i, upload_file in enumerate(upload_files):
+            if not upload_file:
+                raise HTTPException(status_code=400, detail=f"File {i+1} is empty")
+            
+            # Read file content
+            file_content = await upload_file.read()
+            file_size = len(file_content)
+            total_size += file_size
+            
+            # Check individual file size
+            if file_size > settings.MAX_UPLOAD_SIZE:
+                logger.warning(f"File {i+1} too large: {file_size} bytes", extra={"request_id": request_id})
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File {i+1} too large. Maximum size: {settings.MAX_UPLOAD_SIZE} bytes"
+                )
+            
+            processed_files.append((upload_file, file_content, file_size))
+        
+        # Check total size limit (50MB for multiple images)
+        max_total_size = 50 * 1024 * 1024  # 50MB
+        if total_size > max_total_size:
+            logger.warning(f"Total files too large: {total_size} bytes", extra={"request_id": request_id})
             raise HTTPException(
                 status_code=413,
-                detail=f"File too large. Maximum size: {settings.MAX_UPLOAD_SIZE} bytes"
+                detail=f"Total files too large. Maximum total size: {max_total_size} bytes"
             )
         
-        # Validate file type using python-magic
-        try:
-            mime_type = magic.from_buffer(file_content, mime=True)
-        except Exception as e:
-            logger.error(f"Failed to detect file type: {e}", extra={"request_id": request_id})
-            raise HTTPException(status_code=400, detail="Unable to detect file type")
+        # Validate file types using python-magic
+        validated_files = []
+        for i, (upload_file, file_content, file_size) in enumerate(processed_files):
+            try:
+                mime_type = magic.from_buffer(file_content, mime=True)
+            except Exception as e:
+                logger.error(f"Failed to detect file type for file {i+1}: {e}", extra={"request_id": request_id})
+                raise HTTPException(status_code=400, detail=f"Unable to detect file type for file {i+1}")
+            
+            if mime_type not in ALLOWED_MIME_TYPES:
+                logger.warning(f"Invalid file type for file {i+1}: {mime_type}", extra={"request_id": request_id})
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid file type for file {i+1}: {mime_type}. Allowed types: {', '.join(ALLOWED_MIME_TYPES)}"
+                )
+            
+            validated_files.append(file_content)
         
-        if mime_type not in ALLOWED_MIME_TYPES:
-            logger.warning(f"Invalid file type: {mime_type}", extra={"request_id": request_id})
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid file type: {mime_type}. Allowed types: {', '.join(ALLOWED_MIME_TYPES)}"
-            )
-        
-        logger.info(f"File validation passed", extra={
+        logger.info(f"File validation passed for {len(validated_files)} files", extra={
             "request_id": request_id,
-            "file_size": file_size,
-            "mime_type": mime_type
+            "total_files": len(validated_files),
+            "total_size": total_size
         })
         
-        # Create translation task
-        task = await task_manager.create_task(file_content, target_language.value)
+        # Create translation task with multiple images
+        task = await task_manager.create_task(validated_files, target_language.value)
         
         # Estimate processing time based on current queue length
         estimated_wait_time = await task_manager.estimate_wait_time()
@@ -102,6 +137,7 @@ async def create_translation_task(
             "request_id": request_id,
             "task_id": task.task_id,
             "target_language": target_language.value,
+            "total_images": len(validated_files),
             "estimated_wait_time": estimated_wait_time
         })
         
@@ -143,8 +179,38 @@ async def get_translation_result(
             if not task:
                 raise HTTPException(status_code=404, detail="Task not found")
             
-            # If task is completed or failed, return immediately
-            if task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
+            # Check if any partial results are available for multi-image tasks
+            if task.partial_results and len(task.partial_results) > 0:
+                # Calculate progress
+                completed_count = sum(1 for r in task.partial_results if r.status in [TaskStatus.COMPLETED, TaskStatus.FAILED])
+                progress_percentage = (completed_count / task.total_images) * 100 if task.total_images > 0 else 0
+                
+                # Return immediately if any partial results are available
+                if completed_count > 0 or task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
+                    success = task.status == TaskStatus.COMPLETED if task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED] else None
+                    
+                    logger.info(f"Task {task_id} returning partial results: {completed_count}/{task.total_images} completed")
+                    
+                    return TaskResultResponse(
+                        task_id=task.task_id,
+                        status=task.status,
+                        success=success,
+                        partial_results=task.partial_results,
+                        completed_images=completed_count,
+                        total_images=task.total_images,
+                        progress_percentage=progress_percentage,
+                        # Backward compatibility
+                        translated_text=task.translated_text,
+                        target_language=task.target_language,
+                        created_at=task.created_at,
+                        started_at=task.started_at,
+                        completed_at=task.completed_at,
+                        processing_time=task.processing_time,
+                        error=task.error
+                    )
+            
+            # Handle single image tasks (backward compatibility)
+            elif task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
                 success = task.status == TaskStatus.COMPLETED
                 
                 logger.info(f"Task {task_id} final status: {task.status.value}")
@@ -153,6 +219,11 @@ async def get_translation_result(
                     task_id=task.task_id,
                     status=task.status,
                     success=success,
+                    partial_results=[],
+                    completed_images=1 if success else 0,
+                    total_images=1,
+                    progress_percentage=100.0 if success else 0.0,
+                    # Backward compatibility
                     translated_text=task.translated_text,
                     target_language=task.target_language,
                     created_at=task.created_at,
@@ -174,10 +245,22 @@ async def get_translation_result(
         
         logger.info(f"Polling timeout for task {task_id}, status: {task.status.value}")
         
+        # Calculate current progress for multi-image tasks
+        completed_count = 0
+        progress_percentage = 0.0
+        if task.partial_results:
+            completed_count = sum(1 for r in task.partial_results if r.status in [TaskStatus.COMPLETED, TaskStatus.FAILED])
+            progress_percentage = (completed_count / task.total_images) * 100 if task.total_images > 0 else 0
+        
         return TaskResultResponse(
             task_id=task.task_id,
             status=task.status,
             success=None,
+            partial_results=task.partial_results or [],
+            completed_images=completed_count,
+            total_images=task.total_images,
+            progress_percentage=progress_percentage,
+            # Backward compatibility
             translated_text=None,
             target_language=task.target_language,
             created_at=task.created_at,

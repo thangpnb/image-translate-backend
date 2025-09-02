@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from enum import Enum
 import uuid
 from datetime import datetime
@@ -100,6 +100,16 @@ class TaskStatus(str, Enum):
     FAILED = "failed"
 
 
+# Image Result Model for Multiple Images
+class ImageResult(BaseModel):
+    index: int = Field(description="Image index in the batch")
+    status: TaskStatus = Field(description="Processing status for this image")
+    translated_text: Optional[str] = Field(default=None)
+    error: Optional[str] = Field(default=None) 
+    completed_at: Optional[datetime] = Field(default=None)
+    processing_time: Optional[float] = Field(default=None)
+
+
 # Task Models for Long Polling
 class TranslationTask(BaseModel):
     task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -108,7 +118,14 @@ class TranslationTask(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     started_at: Optional[datetime] = Field(default=None)
     completed_at: Optional[datetime] = Field(default=None)
-    image_data: Optional[str] = Field(default=None, description="Base64 encoded image data")
+    
+    # Multiple images support
+    images_data: List[str] = Field(default_factory=list, description="List of base64 encoded images")
+    total_images: int = Field(default=1, description="Total number of images")
+    partial_results: List[ImageResult] = Field(default_factory=list)
+    
+    # Backward compatibility
+    image_data: Optional[str] = Field(default=None, description="Base64 encoded image data (deprecated)")
     translated_text: Optional[str] = Field(default=None)
     error: Optional[str] = Field(default=None)
     processing_time: Optional[float] = Field(default=None)
@@ -133,6 +150,14 @@ class TaskResultResponse(BaseModel):
     task_id: str = Field(description="Task identifier")
     status: TaskStatus = Field(description="Current task status")
     success: Optional[bool] = Field(default=None)
+    
+    # Multiple images support
+    partial_results: List[ImageResult] = Field(default_factory=list)
+    completed_images: int = Field(default=0)
+    total_images: int = Field(default=1)
+    progress_percentage: float = Field(default=0.0)
+    
+    # Backward compatibility
     translated_text: Optional[str] = Field(default=None)
     target_language: Optional[str] = Field(default=None)
     created_at: Optional[datetime] = Field(default=None)

@@ -56,45 +56,87 @@ class TranslationWorker:
         logger.info(f"Worker {self.worker_id} stopped")
     
     async def _process_task(self, task_id: str):
-        """Process a translation task"""
+        """Process a translation task (supports multiple images)"""
         start_time = datetime.now(timezone.utc)
         
         try:
             # Get task details
             task = await task_manager.get_task(task_id)
-            if not task or not task.image_data:
-                await task_manager.fail_task(task_id, "Task not found or invalid image data")
+            if not task:
+                await task_manager.fail_task(task_id, "Task not found")
                 self.failed_tasks += 1
                 return
             
-            # Decode image data
-            try:
-                image_data = base64.b64decode(task.image_data)
-            except Exception as e:
-                await task_manager.fail_task(task_id, f"Failed to decode image data: {e}")
+            # Handle both single and multiple images
+            images_to_process = []
+            if task.images_data:  # New multiple images format
+                images_to_process = task.images_data
+            elif task.image_data:  # Backward compatibility
+                images_to_process = [task.image_data]
+            else:
+                await task_manager.fail_task(task_id, "No image data found")
                 self.failed_tasks += 1
                 return
             
-            # Perform translation
-            success, result, error = await gemini_service.translate_image(
-                image_data, 
-                task.target_language
-            )
+            logger.info(f"Worker {self.worker_id} processing task {task_id} with {len(images_to_process)} images")
+            
+            # Process each image sequentially
+            successful_images = 0
+            failed_images = 0
+            
+            for index, image_data_b64 in enumerate(images_to_process):
+                try:
+                    # Decode image data
+                    try:
+                        image_data = base64.b64decode(image_data_b64)
+                    except Exception as e:
+                        error_msg = f"Failed to decode image {index + 1} data: {e}"
+                        await task_manager.update_partial_result(task_id, index, error=error_msg)
+                        failed_images += 1
+                        continue
+                    
+                    # Perform translation for this image
+                    success, result, error = await gemini_service.translate_image(
+                        image_data, 
+                        task.target_language
+                    )
+                    
+                    # Update partial result immediately
+                    if success:
+                        await task_manager.update_partial_result(task_id, index, result=result)
+                        successful_images += 1
+                        logger.info(f"Worker {self.worker_id} completed image {index + 1}/{len(images_to_process)} in task {task_id}")
+                    else:
+                        await task_manager.update_partial_result(task_id, index, error=error or "Translation failed")
+                        failed_images += 1
+                        logger.warning(f"Worker {self.worker_id} failed image {index + 1} in task {task_id}: {error}")
+                        
+                except Exception as e:
+                    error_msg = f"Exception processing image {index + 1}: {str(e)}"
+                    await task_manager.update_partial_result(task_id, index, error=error_msg)
+                    failed_images += 1
+                    logger.error(f"Worker {self.worker_id} exception processing image {index + 1} in task {task_id}: {e}")
+            
+            # Update worker stats
+            if successful_images > 0:
+                self.successful_tasks += 1
+            if failed_images == len(images_to_process):
+                self.failed_tasks += 1
             
             processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
-            
-            if success:
-                await task_manager.complete_task(task_id, result, processing_time)
-                self.successful_tasks += 1
-                logger.info(f"Worker {self.worker_id} completed task {task_id} in {processing_time:.2f}s")
-            else:
-                await task_manager.fail_task(task_id, error or "Translation failed", processing_time)
-                self.failed_tasks += 1
-                logger.warning(f"Worker {self.worker_id} failed task {task_id}: {error}")
+            logger.info(f"Worker {self.worker_id} completed task {task_id} in {processing_time:.2f}s - {successful_images} successful, {failed_images} failed")
                 
         except Exception as e:
             processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
-            await task_manager.fail_task(task_id, str(e), processing_time)
+            # For multiple images, we need to update the task status differently
+            task = await task_manager.get_task(task_id)
+            if task and task.images_data:
+                # Mark all images as failed
+                for index in range(len(task.images_data)):
+                    await task_manager.update_partial_result(task_id, index, error=str(e))
+            else:
+                await task_manager.fail_task(task_id, str(e), processing_time)
+            
             self.failed_tasks += 1
             logger.error(f"Worker {self.worker_id} exception processing task {task_id}: {e}")
     

@@ -2,10 +2,10 @@ import json
 import base64
 import asyncio
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from loguru import logger
 from ..core.redis_client import redis_client
-from ..models.schemas import TranslationTask, TaskStatus
+from ..models.schemas import TranslationTask, TaskStatus, ImageResult
 
 
 class TaskManager:
@@ -14,24 +14,44 @@ class TaskManager:
         self.queue_key = "translation_queue"
         self.processing_key = "processing_tasks"
         
-    async def create_task(self, image_data: bytes, target_language: str) -> TranslationTask:
+    async def create_task(self, images_data: Union[bytes, List[bytes]], target_language: str) -> TranslationTask:
         """Create a new translation task and add to queue"""
+        # Handle both single and multiple images
+        if isinstance(images_data, bytes):
+            # Single image (backward compatibility)
+            images_list = [images_data]
+        else:
+            images_list = images_data
+        
+        # Encode all images to base64
+        encoded_images = [base64.b64encode(img_data).decode('utf-8') for img_data in images_list]
+        
         task = TranslationTask(
             target_language=target_language,
-            image_data=base64.b64encode(image_data).decode('utf-8')
+            images_data=encoded_images,
+            total_images=len(encoded_images),
+            partial_results=[],
+            # Backward compatibility
+            image_data=encoded_images[0] if encoded_images else None
         )
+        
+        # Initialize partial results
+        task.partial_results = [
+            ImageResult(index=i, status=TaskStatus.PENDING)
+            for i in range(len(encoded_images))
+        ]
         
         # Store task data in Redis
         task_key = f"{self.task_prefix}{task.task_id}"
         task_data = task.model_dump_json()
         
-        # Set with expiration (3 minutes)
-        await redis_client.set(task_key, task_data, expire=180)
+        # Set with expiration (24 hours for multiple images)
+        await redis_client.set(task_key, task_data, expire=86400)
         
         # Add to queue
         await redis_client.redis.lpush(self.queue_key, task.task_id)
         
-        logger.info(f"Created task {task.task_id} for language {target_language}")
+        logger.info(f"Created task {task.task_id} for language {target_language} with {len(encoded_images)} images")
         return task
     
     async def get_task(self, task_id: str) -> Optional[TranslationTask]:
@@ -199,6 +219,80 @@ class TaskManager:
             logger.error(f"Error getting queue stats: {e}")
             return {"pending": 0, "processing": 0, "total": 0}
     
+    async def update_partial_result(self, task_id: str, image_index: int, 
+                                   result: str = None, error: str = None) -> bool:
+        """Update specific image result in a multi-image task"""
+        try:
+            task = await self.get_task(task_id)
+            if not task:
+                return False
+            
+            # Ensure partial_results list exists and has correct size
+            if not task.partial_results or len(task.partial_results) <= image_index:
+                # Initialize or extend partial_results if needed
+                while len(task.partial_results) <= image_index:
+                    task.partial_results.append(
+                        ImageResult(index=len(task.partial_results), status=TaskStatus.PENDING)
+                    )
+            
+            # Update the specific image result
+            image_result = task.partial_results[image_index]
+            image_result.completed_at = datetime.now(timezone.utc)
+            
+            if result:
+                image_result.status = TaskStatus.COMPLETED
+                image_result.translated_text = result
+                # Calculate processing time if task was started
+                if task.started_at:
+                    image_result.processing_time = (image_result.completed_at - task.started_at).total_seconds()
+            else:
+                image_result.status = TaskStatus.FAILED
+                image_result.error = error or "Unknown error"
+                # Calculate processing time if task was started
+                if task.started_at:
+                    image_result.processing_time = (image_result.completed_at - task.started_at).total_seconds()
+            
+            # Update overall task progress
+            completed_count = sum(1 for r in task.partial_results if r.status in [TaskStatus.COMPLETED, TaskStatus.FAILED])
+            
+            # Check if all images are processed
+            if completed_count >= task.total_images:
+                # Check if any completed successfully
+                successful_count = sum(1 for r in task.partial_results if r.status == TaskStatus.COMPLETED)
+                if successful_count > 0:
+                    task.status = TaskStatus.COMPLETED
+                    # For backward compatibility, set translated_text to first successful result
+                    for r in task.partial_results:
+                        if r.status == TaskStatus.COMPLETED and r.translated_text:
+                            task.translated_text = r.translated_text
+                            break
+                else:
+                    task.status = TaskStatus.FAILED
+                    # For backward compatibility, set error to first error
+                    for r in task.partial_results:
+                        if r.status == TaskStatus.FAILED and r.error:
+                            task.error = r.error
+                            break
+                
+                task.completed_at = datetime.now(timezone.utc)
+                if task.started_at:
+                    task.processing_time = (task.completed_at - task.started_at).total_seconds()
+                    
+                # Remove from processing set
+                await redis_client.redis.srem(self.processing_key, task_id)
+            
+            # Save updated task
+            task_key = f"{self.task_prefix}{task_id}"
+            task_data = task.model_dump_json()
+            await redis_client.set(task_key, task_data, expire=86400)
+            
+            logger.info(f"Updated task {task_id} image {image_index} status")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating partial result for task {task_id}: {e}")
+            return False
+    
     async def estimate_wait_time(self, current_queue_position: Optional[int] = None) -> int:
         """Estimate wait time based on queue length and processing capacity"""
         try:
@@ -212,11 +306,11 @@ class TaskManager:
             avg_processing_time_per_image = 2.5  # seconds (average of 2-3 seconds)
             estimated_workers = max(1, await self.get_processing_count())
             
-            # Each task contains 1 image, so processing time per task is same as per image
-            # Estimate wait time based on queue position and worker capacity
-            estimated_wait = (current_queue_position * avg_processing_time_per_image) // estimated_workers
+            # For multiple images, estimate average images per task
+            avg_images_per_task = 2  # Conservative estimate
+            estimated_wait = (current_queue_position * avg_processing_time_per_image * avg_images_per_task) // estimated_workers
             
-            return min(max(estimated_wait, 2), 120)  # Between 2 seconds and 2 minutes
+            return min(max(estimated_wait, 2), 300)  # Between 2 seconds and 5 minutes
             
         except Exception as e:
             logger.error(f"Error estimating wait time: {e}")
