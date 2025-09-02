@@ -25,8 +25,8 @@ class TaskManager:
         task_key = f"{self.task_prefix}{task.task_id}"
         task_data = task.model_dump_json()
         
-        # Set with expiration (24 hours)
-        await redis_client.set(task_key, task_data, expire=86400)
+        # Set with expiration (3 minutes)
+        await redis_client.set(task_key, task_data, expire=180)
         
         # Add to queue
         await redis_client.redis.lpush(self.queue_key, task.task_id)
@@ -93,7 +93,7 @@ class TaskManager:
             # Save updated task
             task_key = f"{self.task_prefix}{task_id}"
             task_data = task.model_dump_json()
-            await redis_client.set(task_key, task_data, expire=86400)
+            await redis_client.set(task_key, task_data, expire=180)
             
             logger.info(f"Updated task {task_id} status to {status.value}")
             return True
