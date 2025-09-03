@@ -1,7 +1,7 @@
 import os
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from loguru import logger
@@ -130,37 +130,60 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # Include API routes
 app.include_router(router, prefix="/api/v1")
 
-# Health check endpoint (outside of API versioning)
-@app.get("/health")
-async def health_check():
+# Shared dependency for service status checks
+async def get_service_status():
     """
-    Comprehensive health check endpoint
+    Shared dependency to check service status (Redis, Gemini, API keys)
     """
     from .services.gemini_service import gemini_service
     from .services.key_rotation import api_key_manager
     
+    # Check Redis connection
+    redis_connected = False
+    if redis_client.redis:
+        try:
+            await redis_client.redis.ping()
+            redis_connected = True
+        except Exception:
+            pass
+    
+    # Check Gemini service
+    gemini_healthy, gemini_status = await gemini_service.health_check()
+    
+    # Get active keys count (keys that are not marked as failed)
+    active_keys = 0
+    total_keys = len(api_key_manager.keys)
+    
+    for key_info in api_key_manager.keys:
+        if not await api_key_manager.is_key_failed(key_info):
+            active_keys += 1
+    
+    return {
+        "redis_connected": redis_connected,
+        "gemini_healthy": gemini_healthy,
+        "gemini_status": gemini_status,
+        "active_keys": active_keys,
+        "total_keys": total_keys
+    }
+
+
+# Health check endpoint (outside of API versioning)
+@app.get("/health")
+async def health_check(service_status: dict = Depends(get_service_status)):
+    """
+    Comprehensive health check endpoint
+    """
     try:
-        # Check Redis connection
-        redis_connected = False
-        if redis_client.redis:
-            try:
-                await redis_client.redis.ping()
-                redis_connected = True
-            except Exception:
-                pass
-        
-        # Check Gemini service
-        gemini_healthy, gemini_status = await gemini_service.health_check()
-        
-        # Get API keys count
-        api_keys_count = len(api_key_manager.keys)
+        redis_connected = service_status["redis_connected"]
+        gemini_healthy = service_status["gemini_healthy"]
+        total_keys = service_status["total_keys"]
         
         status = "healthy"
         if not redis_connected:
             status = "degraded"
         if not gemini_healthy:
             status = "unhealthy"
-        if api_keys_count == 0:
+        if total_keys == 0:
             status = "unhealthy"
         
         return {
@@ -169,7 +192,7 @@ async def health_check():
             "version": "1.0.0",
             "redis_connected": redis_connected,
             "gemini_healthy": gemini_healthy,
-            "api_keys_count": api_keys_count
+            "api_keys_count": total_keys
         }
     
     except Exception as e:
@@ -186,28 +209,13 @@ async def health_check():
 
 # Metrics endpoint for monitoring
 @app.get("/metrics")
-async def metrics():
+async def metrics(service_status: dict = Depends(get_service_status)):
     """
     Get comprehensive service metrics
     """
-    from .services.gemini_service import gemini_service
-    from .services.key_rotation import api_key_manager
-    
     try:
-        # Check Redis connection
-        redis_connected = False
-        if redis_client.redis:
-            try:
-                await redis_client.redis.ping()
-                redis_connected = True
-            except Exception:
-                pass
-        
-        # Get active keys count (keys that are not marked as failed)
-        active_keys = 0
-        for key_info in api_key_manager.keys:
-            if not await api_key_manager.is_key_failed(key_info):
-                active_keys += 1
+        redis_connected = service_status["redis_connected"]
+        active_keys = service_status["active_keys"]
         
         # Get worker pool stats
         worker_stats = await worker_pool.get_stats()
