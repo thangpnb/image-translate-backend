@@ -6,6 +6,8 @@ A high-performance FastAPI backend service for image translation using Gemini AP
 
 - 🚀 **FastAPI Framework**: High-performance async API with automatic OpenAPI documentation
 - 🔄 **Smart API Key Rotation**: Intelligent rotation with rate limit handling and fallback
+- 📸 **Multiple Images**: Process 1-10 images per request with progressive results
+- ⏱️ **Long Polling**: Real-time results with auto-scaling worker pools (50-1000 workers)
 - 🛡️ **Comprehensive Security**: Multi-layer rate limiting, security headers, input validation
 - 📊 **Redis Integration**: Caching, rate limiting, and key usage tracking
 - 🐳 **Production Ready**: Docker containerization with Nginx reverse proxy
@@ -81,28 +83,85 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 **POST** `/api/v1/translate`
 
-Translate text in uploaded image to target language.
+Translate text in uploaded image(s) to target language with long polling.
 
 **Parameters:**
-- `file`: Image file (JPG, PNG, GIF, WebP, BMP, TIFF)
+- `file`: Single image file (JPG, PNG, GIF, WebP, BMP, TIFF) OR
+- `files`: Multiple image files (1-10 images, max 50MB total)
 - `target_language`: Target language (default: Vietnamese)
 
-**Example:**
+**Single Image Example:**
 ```bash
 curl -X POST "http://localhost:8000/api/v1/translate" \
-  -H "Content-Type: multipart/form-data" \
   -F "file=@image.jpg" \
   -F "target_language=Vietnamese"
 ```
 
-**Response:**
+**Multiple Images Example:**
+```bash
+curl -X POST "http://localhost:8000/api/v1/translate" \
+  -F "files=@image1.jpg" \
+  -F "files=@image2.jpg" \
+  -F "files=@image3.jpg" \
+  -F "target_language=Vietnamese"
+```
+
+**Response (Task Created):**
 ```json
 {
+  "task_id": "abc123-def456-789",
+  "status": "pending",
+  "estimated_processing_time": 45
+}
+```
+
+### Get Results
+
+**GET** `/api/v1/result/{task_id}`
+
+Poll for translation results with progressive updates.
+
+**Example:**
+```bash
+curl "http://localhost:8000/api/v1/result/abc123-def456-789"
+```
+
+**Response (Single Image - Completed):**
+```json
+{
+  "task_id": "abc123-def456-789",
+  "status": "completed",
   "success": true,
   "translated_text": "Translated content here",
-  "target_language": "Vietnamese", 
-  "request_id": "12345678-1234-1234-1234-123456789012",
-  "processing_time": 2.456
+  "target_language": "Vietnamese",
+  "processing_time": 25.3
+}
+```
+
+**Response (Multiple Images - Progressive):**
+```json
+{
+  "task_id": "abc123-def456-789",
+  "status": "processing",
+  "partial_results": [
+    {
+      "index": 0,
+      "status": "completed",
+      "translated_text": "First image text",
+      "completed_at": "2025-01-01T10:30:00Z"
+    },
+    {
+      "index": 1,
+      "status": "processing"
+    },
+    {
+      "index": 2,
+      "status": "pending"
+    }
+  ],
+  "completed_images": 1,
+  "total_images": 3,
+  "progress_percentage": 33.33
 }
 ```
 

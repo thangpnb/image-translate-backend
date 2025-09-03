@@ -78,13 +78,11 @@ class TranslationWorker:
                 self.failed_tasks += 1
                 return
             
-            logger.info(f"Worker {self.worker_id} processing task {task_id} with {len(images_to_process)} images")
+            logger.info(f"Worker {self.worker_id} processing task {task_id} with {len(images_to_process)} images in parallel")
             
-            # Process each image sequentially
-            successful_images = 0
-            failed_images = 0
-            
-            for index, image_data_b64 in enumerate(images_to_process):
+            # Process all images in parallel using asyncio.gather
+            async def process_single_image(index: int, image_data_b64: str):
+                """Process a single image and update its result"""
                 try:
                     # Decode image data
                     try:
@@ -92,8 +90,7 @@ class TranslationWorker:
                     except Exception as e:
                         error_msg = f"Failed to decode image {index + 1} data: {e}"
                         await task_manager.update_partial_result(task_id, index, error=error_msg)
-                        failed_images += 1
-                        continue
+                        return {'success': False, 'error': error_msg}
                     
                     # Perform translation for this image
                     success, result, error = await gemini_service.translate_image(
@@ -104,18 +101,43 @@ class TranslationWorker:
                     # Update partial result immediately
                     if success:
                         await task_manager.update_partial_result(task_id, index, result=result)
-                        successful_images += 1
                         logger.info(f"Worker {self.worker_id} completed image {index + 1}/{len(images_to_process)} in task {task_id}")
+                        return {'success': True, 'result': result}
                     else:
                         await task_manager.update_partial_result(task_id, index, error=error or "Translation failed")
-                        failed_images += 1
                         logger.warning(f"Worker {self.worker_id} failed image {index + 1} in task {task_id}: {error}")
+                        return {'success': False, 'error': error or "Translation failed"}
                         
                 except Exception as e:
                     error_msg = f"Exception processing image {index + 1}: {str(e)}"
                     await task_manager.update_partial_result(task_id, index, error=error_msg)
-                    failed_images += 1
                     logger.error(f"Worker {self.worker_id} exception processing image {index + 1} in task {task_id}: {e}")
+                    return {'success': False, 'error': error_msg}
+            
+            # Create tasks for all images and process them in parallel
+            image_tasks = [
+                process_single_image(index, image_data_b64) 
+                for index, image_data_b64 in enumerate(images_to_process)
+            ]
+            
+            # Wait for all images to complete processing
+            results = await asyncio.gather(*image_tasks, return_exceptions=True)
+            
+            # Count successful and failed images
+            successful_images = 0
+            failed_images = 0
+            
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    # Handle any exceptions from asyncio.gather
+                    error_msg = f"Async exception processing image {i + 1}: {str(result)}"
+                    await task_manager.update_partial_result(task_id, i, error=error_msg)
+                    failed_images += 1
+                    logger.error(f"Worker {self.worker_id} async exception for image {i + 1}: {result}")
+                elif result.get('success', False):
+                    successful_images += 1
+                else:
+                    failed_images += 1
             
             # Update worker stats
             if successful_images > 0:
@@ -124,7 +146,7 @@ class TranslationWorker:
                 self.failed_tasks += 1
             
             processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
-            logger.info(f"Worker {self.worker_id} completed task {task_id} in {processing_time:.2f}s - {successful_images} successful, {failed_images} failed")
+            logger.info(f"Worker {self.worker_id} completed task {task_id} in {processing_time:.2f}s - {successful_images} successful, {failed_images} failed (parallel processing)")
                 
         except Exception as e:
             processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()

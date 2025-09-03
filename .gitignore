@@ -2,6 +2,8 @@ config/api_keys.json
 .env
 .vscode/
 PROJECT_INDEX.dsl
+test_images/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
