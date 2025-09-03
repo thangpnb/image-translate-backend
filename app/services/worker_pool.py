@@ -242,19 +242,23 @@ class WorkerPool:
             # Assume each worker can process 2 requests per minute on average
             optimal_workers_for_capacity = min(total_rpm_capacity // 2, self.max_workers)
             
-            # Scale based on queue length
+            # Scale based on queue length - implementing step-based scaling as per CLAUDE.md
             if queue_length > 500:
-                # Heavy load - scale to max allowed
+                # Heavy load - scale to max workers (1000)
                 target_workers = min(self.max_workers, optimal_workers_for_capacity)
+                logger.debug(f"Queue length {queue_length} > 500: scaling to max workers {target_workers}")
             elif queue_length > 100:
-                # Medium load - scale up significantly
-                target_workers = min(current_workers + 50, optimal_workers_for_capacity)
+                # Medium load - add 50 workers as per specification
+                target_workers = min(current_workers + 50, optimal_workers_for_capacity, self.max_workers)
+                logger.debug(f"Queue length {queue_length} > 100: adding 50 workers ({current_workers} -> {target_workers})")
             elif queue_length > 20:
-                # Light load - gradual scaling
-                target_workers = min(current_workers + 10, optimal_workers_for_capacity)
+                # Light load - gradual scaling (+10 workers)
+                target_workers = min(current_workers + 10, optimal_workers_for_capacity, self.max_workers)
+                logger.debug(f"Queue length {queue_length} > 20: adding 10 workers ({current_workers} -> {target_workers})")
             elif queue_length == 0 and processing_count < 10:
                 # No queue and low processing - check for idle workers to scale down
                 target_workers = await self._calculate_scale_down_target(current_workers)
+                logger.debug(f"Queue empty with {processing_count} processing: scaling down to {target_workers}")
             else:
                 # Maintain current level
                 target_workers = current_workers
@@ -284,9 +288,23 @@ class WorkerPool:
                 if idle_time > idle_threshold:
                     idle_workers += 1
         
-        # Scale down gradually - remove up to 25% of idle workers
-        workers_to_remove = min(idle_workers // 4, current_workers - self.min_workers)
-        return max(current_workers - workers_to_remove, self.min_workers)
+        # Step-based scale down: remove workers in increments of 10-25
+        if idle_workers >= 50:
+            # Many idle workers - scale down by 25
+            workers_to_remove = min(25, current_workers - self.min_workers)
+        elif idle_workers >= 20:
+            # Some idle workers - scale down by 10
+            workers_to_remove = min(10, current_workers - self.min_workers)
+        elif idle_workers >= 10:
+            # Few idle workers - scale down by 5
+            workers_to_remove = min(5, current_workers - self.min_workers)
+        else:
+            # Very few idle workers - minimal scaling
+            workers_to_remove = min(1, current_workers - self.min_workers)
+        
+        target_workers = max(current_workers - workers_to_remove, self.min_workers)
+        logger.debug(f"Scale down calculation: {idle_workers} idle workers, removing {workers_to_remove} ({current_workers} -> {target_workers})")
+        return target_workers
     
     async def _scale_to_workers(self, target_count: int):
         """Scale worker pool to target count"""
