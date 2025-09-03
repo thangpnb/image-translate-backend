@@ -1,10 +1,11 @@
 import asyncio
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 from google.genai import Client
 from PIL import Image
 import io
 from loguru import logger
 from ..core.config import settings
+from ..models.schemas import TranslationLanguage
 from .key_rotation import api_key_manager
 from .prompt_manager import prompt_manager
 
@@ -13,11 +14,11 @@ class GeminiTranslationService:
     def __init__(self):
         self.model_name = settings.GEMINI_MODEL
     
-    def _get_translation_prompt(self, target_language: str) -> str:
+    def _get_translation_prompt(self, target_language: Union[TranslationLanguage, str]) -> str:
         """Get the translation prompt optimized for specific language"""
         return prompt_manager.get_prompt(target_language)
 
-    async def translate_image(self, image_data: bytes, target_language: str = "Vietnamese") -> Tuple[bool, str, Optional[str]]:
+    async def translate_image(self, image_data: bytes, target_language: Union[TranslationLanguage, str] = TranslationLanguage.VIETNAMESE) -> Tuple[bool, str, Optional[str]]:
         """
         Translate text in image using Gemini API
         

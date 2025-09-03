@@ -8,7 +8,7 @@ from ..core.config import settings
 from ..services.task_manager import task_manager
 from ..services.gemini_service import gemini_service
 from ..services.key_rotation import api_key_manager
-from ..models.schemas import TaskStatus
+from ..models.schemas import TaskStatus, TranslationLanguage
 
 
 class TranslationWorker:
@@ -92,10 +92,18 @@ class TranslationWorker:
                         await task_manager.update_partial_result(task_id, index, error=error_msg)
                         return {'success': False, 'error': error_msg}
                     
+                    # Convert string to enum for API consistency
+                    try:
+                        target_lang_enum = TranslationLanguage(task.target_language)
+                    except ValueError:
+                        # Fallback to Vietnamese if invalid language
+                        target_lang_enum = TranslationLanguage.VIETNAMESE
+                        logger.warning(f"Unknown target language '{task.target_language}', using Vietnamese fallback")
+                    
                     # Perform translation for this image
                     success, result, error = await gemini_service.translate_image(
                         image_data, 
-                        task.target_language
+                        target_lang_enum
                     )
                     
                     # Update partial result immediately
