@@ -6,50 +6,50 @@ import os
 
 class Settings(BaseSettings):
     # Server Configuration
-    SERVER_HOST: str = "0.0.0.0"
-    SERVER_PORT: int = 8000
-    WORKERS: int = 4
-    MAX_UPLOAD_SIZE: int = 10485760  # 10MB
-    REQUEST_TIMEOUT: int = 300  # 5 minutes
+    SERVER_HOST: str
+    SERVER_PORT: int
+    WORKERS: int
+    MAX_UPLOAD_SIZE: int
+    REQUEST_TIMEOUT: int
 
     # CORS Configuration
-    CORS_ORIGINS: List[str] = ["http://localhost:3000"]
-    CORS_ALLOW_CREDENTIALS: bool = True
+    CORS_ORIGINS: List[str]
+    CORS_ALLOW_CREDENTIALS: bool
 
     # Rate Limiting (Global)
-    GLOBAL_RATE_LIMIT: int = 100  # requests per minute per IP
-    BURST_RATE_LIMIT: int = 20    # burst requests
+    GLOBAL_RATE_LIMIT: int
+    BURST_RATE_LIMIT: int
 
     # Redis Configuration
-    REDIS_HOST: str = "localhost"
-    REDIS_PORT: int = 6379
-    REDIS_DB: int = 0
-    REDIS_PASSWORD: Optional[str] = None
+    REDIS_HOST: str
+    REDIS_PORT: int
+    REDIS_DB: int
+    REDIS_PASSWORD: Optional[str]
 
     # Gemini Configuration
-    GEMINI_MODEL: str = "gemini-2.5-flash-lite"
-    API_KEYS_FILE: str = "config/api_keys.json"
+    GEMINI_MODEL: str
+    API_KEYS_FILE: str
 
     # Rate Limiting
-    DEFAULT_RPM: int = 60
-    DEFAULT_RPD: int = 1440
-    DEFAULT_TPM: int = 32000
+    DEFAULT_RPM: int
+    DEFAULT_RPD: int
+    DEFAULT_TPM: int
 
     # Logging
-    LOG_LEVEL: str = "INFO"
-    LOG_ROTATION: str = "00:00"  # Time-based rotation (daily at midnight)
-    LOG_RETENTION_DAYS: int = 7
+    LOG_LEVEL: str
+    LOG_ROTATION: str
+    LOG_RETENTION_DAYS: int
     
     # Worker Pool Configuration
-    MIN_WORKERS: int = 50
-    MAX_WORKERS: int = 1000
-    WORKER_SCALE_CHECK_INTERVAL: int = 10  # seconds
-    WORKER_IDLE_THRESHOLD: int = 120  # seconds before worker considered idle
+    MIN_WORKERS: int
+    MAX_WORKERS: int
+    WORKER_SCALE_CHECK_INTERVAL: int
+    WORKER_IDLE_THRESHOLD: int
     
     # Long Polling Configuration
-    POLLING_TIMEOUT: int = 60  # seconds
-    POLLING_CHECK_INTERVAL: float = 0.5  # seconds
-    TASK_RETENTION_TIME: int = 86400  # 24 hours in seconds
+    POLLING_TIMEOUT: int
+    POLLING_CHECK_INTERVAL: float
+    TASK_RETENTION_TIME: int
 
     class Config:
         env_file = ".env"
