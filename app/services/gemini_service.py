@@ -1,10 +1,10 @@
 import asyncio
 from typing import Optional, Tuple, Union
-from google.genai import Client
 from PIL import Image
 import io
 from loguru import logger
 from ..core.config import settings
+from ..core.genai_client_manager import get_genai_client, remove_genai_client
 from ..models.schemas import TranslationLanguage
 from .key_rotation import api_key_manager
 from .prompt_manager import prompt_manager
@@ -37,8 +37,8 @@ class GeminiTranslationService:
                 
                 api_key, key_info = key_result
                 
-                # Create Gemini client
-                client = Client(api_key=api_key)
+                # Get centralized Gemini client
+                client = await get_genai_client(api_key)
                 
                 # Process image
                 image = await self._process_image(image_data)
@@ -76,9 +76,10 @@ class GeminiTranslationService:
                     if 'key_info' in locals():
                         await api_key_manager.mark_key_failed(key_info, failure_duration=600)  # 10 minutes
                 elif "invalid" in error_msg.lower() or "unauthorized" in error_msg.lower():
-                    # Mark key as failed due to authentication
+                    # Mark key as failed due to authentication and remove from client pool
                     if 'key_info' in locals():
                         await api_key_manager.mark_key_failed(key_info, failure_duration=3600)  # 1 hour
+                        await remove_genai_client(api_key)  # Remove invalid client from pool
                 
                 retry_count += 1
                 
@@ -133,8 +134,8 @@ class GeminiTranslationService:
             
             api_key, key_info = key_result
             
-            # Try to create a client instance
-            client = Client(api_key=api_key)
+            # Try to get a client instance from the centralized manager
+            client = await get_genai_client(api_key)
             return True, f"Service healthy with {len(api_key_manager.keys)} API keys"
             
         except Exception as e:

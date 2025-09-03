@@ -9,6 +9,7 @@ from loguru import logger
 from .core.config import settings
 from .core.logging import setup_logging
 from .core.redis_client import redis_client
+from .core.genai_client_manager import genai_client_manager
 from .services.worker_pool import worker_pool
 from .services.task_manager import task_manager
 from .middleware.request_id import RequestIDMiddleware
@@ -75,6 +76,13 @@ async def lifespan(app: FastAPI):
         logger.info("Worker pool stopped")
     except Exception as e:
         logger.error(f"Error stopping worker pool: {e}")
+    
+    # Close GenAI client manager
+    try:
+        await genai_client_manager.close_all()
+        logger.info("GenAI client manager closed")
+    except Exception as e:
+        logger.error(f"Error closing GenAI client manager: {e}")
     
     # Disconnect Redis
     await redis_client.disconnect()
