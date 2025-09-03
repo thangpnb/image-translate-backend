@@ -19,7 +19,7 @@ from .middleware.file_validation import FileValidationMiddleware
 from .middleware.timeout import TimeoutMiddleware
 from .middleware.logging import LoggingMiddleware
 from .middleware.error_handler import ErrorHandlerMiddleware
-from .api.routes import router
+from .api import translation, monitoring
 
 
 async def _cleanup_task():
@@ -136,7 +136,8 @@ app.add_middleware(RequestIDMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Include API routes
-app.include_router(router, prefix="/api/v1")
+app.include_router(translation.router, prefix="/api/v1")
+app.include_router(monitoring.router)
 
 # Shared dependency for service status checks
 async def get_service_status():
@@ -175,73 +176,6 @@ async def get_service_status():
     }
 
 
-# Health check endpoint (outside of API versioning)
-@app.get("/health")
-async def health_check(service_status: dict = Depends(get_service_status)):
-    """
-    Comprehensive health check endpoint
-    """
-    try:
-        redis_connected = service_status["redis_connected"]
-        gemini_healthy = service_status["gemini_healthy"]
-        total_keys = service_status["total_keys"]
-        
-        status = "healthy"
-        if not redis_connected:
-            status = "degraded"
-        if not gemini_healthy:
-            status = "unhealthy"
-        if total_keys == 0:
-            status = "unhealthy"
-        
-        return {
-            "status": status,
-            "service": "image-translation-backend",
-            "version": "1.0.0",
-            "redis_connected": redis_connected,
-            "gemini_healthy": gemini_healthy,
-            "api_keys_count": total_keys
-        }
-    
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return {
-            "status": "unhealthy",
-            "service": "image-translation-backend",
-            "version": "1.0.0",
-            "redis_connected": False,
-            "gemini_healthy": False,
-            "api_keys_count": 0
-        }
-
-
-# Metrics endpoint for monitoring
-@app.get("/metrics")
-async def metrics(service_status: dict = Depends(get_service_status)):
-    """
-    Get comprehensive service metrics
-    """
-    try:
-        redis_connected = service_status["redis_connected"]
-        active_keys = service_status["active_keys"]
-        
-        # Get worker pool stats
-        worker_stats = await worker_pool.get_stats()
-        
-        return {
-            "status": "ok",
-            "redis_connected": redis_connected,
-            "active_keys": active_keys,
-            "total_requests": worker_stats.get("tasks_processed", 0)
-        }
-    
-    except Exception as e:
-        logger.error(f"Metrics collection failed: {e}")
-        return {
-            "status": "error",
-            "redis_connected": False,
-            "active_keys": 0
-        }
 
 
 if __name__ == "__main__":
