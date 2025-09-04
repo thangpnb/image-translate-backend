@@ -32,14 +32,14 @@ class APIKeyManager:
             logger.error("No API keys available")
             return None
         
-        # Update key health status
+        # Update key health status and check for recovered keys
         await self._update_key_health()
         
-        # Get available keys sorted by score (best first)
-        available_keys = await self._get_scored_keys()
+        # Get available keys (not disabled) sorted by score (best first)
+        available_keys = await self._get_available_keys()
         
         if not available_keys:
-            logger.warning("All API keys are unavailable or at limits")
+            logger.warning("All API keys are unavailable or disabled")
             return None
         
         # Select key using weighted random selection
@@ -47,7 +47,7 @@ class APIKeyManager:
         return selected_key["api_key"], selected_key
     
     async def _update_key_health(self):
-        """Update the health status of all keys"""
+        """Update the health status of all keys and check for recovered keys"""
         try:
             # Check for recovered keys from failure list
             recovered_keys = []
@@ -58,12 +58,15 @@ class APIKeyManager:
             
             if recovered_keys:
                 logger.info(f"Keys recovered from failure: {recovered_keys}")
+            
+            # Check for keys that should be re-enabled after rate limit recovery
+            await self._check_and_enable_recovered_keys()
                 
         except Exception as e:
             logger.error(f"Error updating key health: {e}")
     
-    async def _get_scored_keys(self) -> List[Dict]:
-        """Get available keys with health scores"""
+    async def _get_available_keys(self) -> List[Dict]:
+        """Get available keys (not disabled) with health scores"""
         available_keys = []
         
         for key_info in self.keys:
@@ -73,11 +76,13 @@ class APIKeyManager:
             if key_id in self.failed_keys:
                 continue
                 
-            # Check rate limits efficiently in batch
-            if await self._check_key_limits_batch(key_info):
-                score = await self._calculate_key_score(key_info)
-                key_info_with_score = {**key_info, "score": score}
-                available_keys.append(key_info_with_score)
+            # Skip disabled keys (reactive rate limiting)
+            if await self._is_key_disabled(key_id):
+                continue
+                
+            score = await self._calculate_key_score(key_info)
+            key_info_with_score = {**key_info, "score": score}
+            available_keys.append(key_info_with_score)
         
         # Sort by score (higher is better)
         available_keys.sort(key=lambda k: k["score"], reverse=True)
@@ -101,53 +106,81 @@ class APIKeyManager:
         logger.debug(f"Selected key {selected['id']} with score {selected['score']:.2f}")
         return selected
     
-    async def _check_key_limits_batch(self, key_info: Dict) -> bool:
-        """Efficiently check all key limits in batch using global .env rate limits"""
-        key_id = key_info["id"]
-        
-        current_minute = int(time.time()) // 60
-        current_day = int(time.time()) // (24 * 3600)
-        
+    async def _is_key_disabled(self, key_id: str) -> bool:
+        """Check if key is disabled due to rate limits"""
         try:
-            # Batch get all counters at once
-            keys_to_check = [
-                f"key_rpm:{key_id}:{current_minute}",
-                f"key_rpd:{key_id}:{current_day}", 
-                f"key_tpm:{key_id}:{current_minute}"
+            current_time = int(time.time())
+            
+            # Check if key is disabled for any rate limit type
+            disable_keys = [
+                f"key_disabled_until:{key_id}:RPM",
+                f"key_disabled_until:{key_id}:RPD", 
+                f"key_disabled_until:{key_id}:TPM"
             ]
             
-            values = await redis_client.mget(*keys_to_check)
-            rpm_count, rpd_count, tpm_count = [int(v) if v else 0 for v in values]
+            values = await redis_client.mget(*disable_keys)
             
-            # Use global rate limits from .env only
-            rpm_limit = settings.DEFAULT_RPM
-            rpd_limit = settings.DEFAULT_RPD
-            tpm_limit = settings.DEFAULT_TPM
+            for disable_until_str in values:
+                if disable_until_str:
+                    disable_until = int(disable_until_str)
+                    if current_time < disable_until:
+                        return True  # Key is still disabled
             
-            if rpm_count >= rpm_limit:
-                logger.debug(f"Key {key_id} exceeded RPM: {rpm_count}/{rpm_limit}")
-                return False
-                
-            if rpd_count >= rpd_limit:
-                logger.debug(f"Key {key_id} exceeded RPD: {rpd_count}/{rpd_limit}")
-                return False
-                
-            if tpm_count >= tpm_limit:
-                logger.debug(f"Key {key_id} exceeded TPM: {tpm_count}/{tpm_limit}")
-                return False
-            
-            return True
+            return False  # Key is not disabled
             
         except Exception as e:
-            logger.error(f"Error checking key limits for {key_id}: {e}")
-            return True
+            logger.error(f"Error checking key disabled state for {key_id}: {e}")
+            return False  # Don't disable on error
     
-    async def record_key_usage(self, key_info: Dict, tokens_used: int = 0):
-        """Record API key usage and update performance metrics"""
+    async def _disable_key_for_limit(self, key_id: str, limit_type: str, disable_until: int):
+        """Disable key for specific limit type until specified time"""
+        try:
+            disable_key = f"key_disabled_until:{key_id}:{limit_type}"
+            expire_seconds = disable_until - int(time.time())
+            
+            if expire_seconds > 0:
+                await redis_client.set(disable_key, str(disable_until), expire=expire_seconds)
+                logger.info(f"Key {key_id} disabled for {limit_type} until {disable_until} ({expire_seconds}s)")
+            
+        except Exception as e:
+            logger.error(f"Error disabling key {key_id} for {limit_type}: {e}")
+    
+    async def _check_and_enable_recovered_keys(self):
+        """Check and enable keys that have passed their disable time"""
+        try:
+            current_time = int(time.time())
+            recovered_count = 0
+            
+            for key_info in self.keys:
+                key_id = key_info["id"]
+                
+                # Check each limit type
+                for limit_type in ["RPM", "RPD", "TPM"]:
+                    disable_key = f"key_disabled_until:{key_id}:{limit_type}"
+                    disable_until_str = await redis_client.get(disable_key)
+                    
+                    if disable_until_str:
+                        disable_until = int(disable_until_str)
+                        if current_time >= disable_until:
+                            await redis_client.delete(disable_key)
+                            logger.info(f"Key {key_id} recovered from {limit_type} limit")
+                            recovered_count += 1
+            
+            if recovered_count > 0:
+                logger.info(f"Total {recovered_count} key-limit pairs recovered")
+                
+        except Exception as e:
+            logger.error(f"Error checking recovered keys: {e}")
+
+    
+    async def record_key_usage(self, key_info: Dict, tokens_used: int = 0) -> bool:
+        """Record API key usage and check for rate limit violations (reactive approach)
+        Returns False if key was disabled due to rate limits"""
         key_id = key_info["id"]
         
         current_minute = int(time.time()) // 60
         current_day = int(time.time()) // (24 * 3600)
+        current_time = int(time.time())
         
         try:
             # Batch increment all counters
@@ -164,14 +197,50 @@ class APIKeyManager:
                 await redis_client.incrby(key, increment)
                 await redis_client.expire(key, expire)
             
+            # Get new counts after increment for reactive rate limiting
+            keys_to_check = [
+                f"key_rpm:{key_id}:{current_minute}",
+                f"key_rpd:{key_id}:{current_day}", 
+                f"key_tpm:{key_id}:{current_minute}"
+            ]
+            
+            values = await redis_client.mget(*keys_to_check)
+            rpm_count, rpd_count, tpm_count = [int(v) if v else 0 for v in values]
+            
+            # Check against rate limits and disable if exceeded (reactive approach)
+            rpm_limit = settings.DEFAULT_RPM
+            rpd_limit = settings.DEFAULT_RPD
+            tpm_limit = settings.DEFAULT_TPM
+            
+            key_disabled = False
+            
+            if rpm_count >= rpm_limit:
+                await self._disable_key_for_limit(key_id, "RPM", current_time + 60)  # Disable until next minute
+                logger.warning(f"Key {key_id} disabled due to RPM limit: {rpm_count}/{rpm_limit}")
+                key_disabled = True
+                
+            if rpd_count >= rpd_limit:
+                next_day = (current_day + 1) * 86400  # Next day start
+                await self._disable_key_for_limit(key_id, "RPD", next_day)
+                logger.warning(f"Key {key_id} disabled due to RPD limit: {rpd_count}/{rpd_limit}")
+                key_disabled = True
+                
+            if tokens_used > 0 and tpm_count >= tpm_limit:
+                await self._disable_key_for_limit(key_id, "TPM", current_time + 60)  # Disable until next minute
+                logger.warning(f"Key {key_id} disabled due to TPM limit: {tpm_count}/{tpm_limit}")
+                key_disabled = True
+            
             # Update success metrics for scoring
             await self._update_success_metrics(key_id)
             
-            logger.debug(f"Recorded usage for key {key_id}: tokens={tokens_used}")
+            logger.debug(f"Recorded usage for key {key_id}: tokens={tokens_used}, disabled={key_disabled}")
+            
+            return not key_disabled  # Return True if key is still available
             
         except Exception as e:
             logger.error(f"Error recording key usage for {key_id}: {e}")
             await self._update_error_metrics(key_id)
+            return True  # Don't disable on error
     
     async def mark_key_failed(self, key_info: Dict, failure_duration: int = 300):
         """Mark key as failed with exponential backoff"""
@@ -253,7 +322,7 @@ class APIKeyManager:
             error_penalty = error_count / max(total_requests + 10, 10)  # Small denominator boost
             
             # Weighted scoring
-            capacity_score = (rpm_capacity * 0.4 + rpd_capacity * 0.2 + tpm_capacity * 0.4)
+            capacity_score = (rpm_capacity * 0.4 + rpd_capacity * 0.2 + tmp_capacity * 0.4)
             performance_score = success_rate * 0.7 - error_penalty * 0.3
             
             final_score = capacity_score * 0.6 + performance_score * 0.4
@@ -294,13 +363,14 @@ class APIKeyManager:
             for key_info in self.keys:
                 key_id = key_info["id"]
                 score = await self._calculate_key_score(key_info)
-                is_available = await self._check_key_limits_batch(key_info)
+                is_disabled = await self._is_key_disabled(key_id)
                 is_failed = key_id in self.failed_keys
                 
                 key_stats = {
                     "id": key_id,
                     "score": round(score, 3),
-                    "available": is_available,
+                    "available": not is_disabled and not is_failed,
+                    "disabled": is_disabled,
                     "failed": is_failed
                 }
                 stats["key_details"].append(key_stats)

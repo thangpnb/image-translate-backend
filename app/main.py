@@ -14,7 +14,6 @@ from .services.worker_pool import worker_pool
 from .services.task_manager import task_manager
 from .middleware.request_id import RequestIDMiddleware
 from .middleware.security_headers import SecurityHeadersMiddleware
-from .middleware.rate_limiting import RateLimitMiddleware
 from .middleware.file_validation import FileValidationMiddleware
 from .middleware.timeout import TimeoutMiddleware
 from .middleware.logging import LoggingMiddleware
@@ -114,8 +113,7 @@ app.add_middleware(TimeoutMiddleware)
 # File validation
 app.add_middleware(FileValidationMiddleware)
 
-# Rate limiting
-app.add_middleware(RateLimitMiddleware)
+# Rate limiting is now handled at API key level, not middleware level
 
 # CORS (should be after rate limiting)
 app.add_middleware(

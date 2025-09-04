@@ -61,13 +61,35 @@ class TaskManager:
             task_data = await redis_client.get(task_key)
             
             if not task_data:
+                logger.warning(f"Task {task_id} not found in Redis")
                 return None
                 
+            logger.info(f"Retrieved task {task_id} data from Redis (length: {len(task_data)})")
             task_dict = json.loads(task_data)
-            return TranslationTask(**task_dict)
+            logger.info(f"Parsed JSON for task {task_id}, keys: {list(task_dict.keys())}")
             
+            task = TranslationTask(**task_dict)
+            logger.info(f"Successfully deserialized task {task_id} with status {task.status}")
+            return task
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error for task {task_id}: {e}")
+            return None
         except Exception as e:
-            logger.error(f"Error getting task {task_id}: {e}")
+            logger.error(f"Error getting task {task_id}: {type(e).__name__}: {e}")
+            # Log the task data for debugging if it exists
+            try:
+                if 'task_data' in locals():
+                    logger.error(f"Task data that caused error: {task_data[:500]}...")
+            except:
+                pass
+            # Also store error in Redis for debugging
+            try:
+                error_key = f"debug_error:{task_id}"
+                error_info = f"Error: {type(e).__name__}: {e}"
+                await redis_client.set(error_key, error_info, expire=300)
+            except:
+                pass
             return None
     
     async def update_task_status(self, task_id: str, status: TaskStatus, **kwargs) -> bool:

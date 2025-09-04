@@ -162,6 +162,7 @@ async def get_translation_result(
     start_time = time.time()
     
     logger.info(f"Polling request for task {task_id} with timeout {timeout}s")
+    logger.error(f"DEBUG: About to call get_task for {task_id}")
     
     try:
         while time.time() - start_time < timeout:

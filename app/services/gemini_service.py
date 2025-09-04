@@ -59,9 +59,16 @@ class GeminiTranslationService:
                     logger.warning("Empty response from Gemini API")
                     return False, "", "No translation generated"
                 
-                # Record successful usage
-                estimated_tokens = len(prompt.split()) + len(response.text.split())
-                await api_key_manager.record_key_usage(key_info, tokens_used=estimated_tokens)
+                # Get actual token usage from Gemini API response
+                actual_tokens = response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') else 0
+                
+                # Record successful usage with actual token count
+                usage_result = await api_key_manager.record_key_usage(key_info, tokens_used=actual_tokens)
+                
+                # Check if key was disabled due to rate limits after this request
+                if not usage_result:
+                    logger.warning(f"Key {key_info['id']} was disabled after this request due to rate limits")
+                    # Continue anyway since this request was successful
                 
                 logger.info(f"Translation completed successfully using key {key_info['id']}")
                 return True, response.text.strip(), None
