@@ -139,42 +139,6 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.include_router(translation.router, prefix="/api/v1")
 app.include_router(monitoring.router)
 
-# Shared dependency for service status checks
-async def get_service_status():
-    """
-    Shared dependency to check service status (Redis, Gemini, API keys)
-    """
-    from .services.gemini_service import gemini_service
-    from .services.key_rotation import api_key_manager
-    
-    # Check Redis connection
-    redis_connected = False
-    if redis_client.redis:
-        try:
-            await redis_client.redis.ping()
-            redis_connected = True
-        except Exception:
-            pass
-    
-    # Check Gemini service
-    gemini_healthy, gemini_status = await gemini_service.health_check()
-    
-    # Get active keys count (keys that are not marked as failed)
-    active_keys = 0
-    total_keys = len(api_key_manager.keys)
-    
-    for key_info in api_key_manager.keys:
-        if not await api_key_manager.is_key_failed(key_info):
-            active_keys += 1
-    
-    return {
-        "redis_connected": redis_connected,
-        "gemini_healthy": gemini_healthy,
-        "gemini_status": gemini_status,
-        "active_keys": active_keys,
-        "total_keys": total_keys
-    }
-
 
 if __name__ == "__main__":
     import uvicorn
