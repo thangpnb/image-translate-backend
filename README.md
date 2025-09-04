@@ -117,13 +117,13 @@ curl -X POST "http://localhost:8000/api/v1/translate" \
 
 ### Get Results
 
-**GET** `/api/v1/result/{task_id}`
+**GET** `/api/v1/translate/result/{task_id}`
 
 Poll for translation results with progressive updates.
 
 **Example:**
 ```bash
-curl "http://localhost:8000/api/v1/result/abc123-def456-789"
+curl "http://localhost:8000/api/v1/translate/result/abc123-def456-789"
 ```
 
 **Response (Single Image - Completed):**

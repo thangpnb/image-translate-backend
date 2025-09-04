@@ -44,14 +44,21 @@ uv run pytest
 
 ### Docker Development
 ```bash
-# Start all services (recommended)
+# Start all services (first time)
 docker compose -f docker/docker-compose.yml up -d
 
-# View logs
-docker compose -f docker/docker-compose.yml logs -f app
+# When modifying Python code (.py files)
+# → NO action needed, uvicorn --reload automatically reloads
 
-# Rebuild after changes
-docker compose -f docker/docker-compose.yml up --build
+# When changing config files
+docker compose -f docker/docker-compose.yml restart app
+
+# When changing pyproject.toml/uv.lock  
+docker compose -f docker/docker-compose.yml build app
+docker compose -f docker/docker-compose.yml up -d
+
+# When changing Dockerfile
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 ### Production Deployment
@@ -68,7 +75,7 @@ docker compose -f docker/docker-compose.yml up -d nginx app_prod redis
 ### Workflow
 1. `POST /api/v1/translate` → Returns `task_id` immediately
 2. Worker pool processes tasks from Redis queue using Gemini API
-3. `GET /api/v1/result/{task_id}` → Long polling (0.5s intervals, 60s timeout)
+3. `GET /api/v1/translate/result/{task_id}` → Long polling (0.5s intervals, 60s timeout)
 
 ### Core Components
 - **Task Manager** (`app/services/task_manager.py`): Redis task storage and queue
@@ -120,7 +127,7 @@ Copy from `.env.example` and configure Redis, **global rate limits** (DEFAULT_RP
 - **Rate Limits**: Update `.env` or Nginx config
 
 ### Debugging
-- **Task Status**: `/api/v1/result/{task_id}` 
+- **Task Status**: `/api/v1/translate/result/{task_id}` 
 - **Queue Stats**: `/api/v1/stats`
 - **Health**: `/health` endpoint
 - **Redis Keys**: `tasks:*`, `translation_queue`, `processing_tasks`
@@ -137,7 +144,7 @@ curl -X POST "http://localhost:8000/api/v1/translate" \
   -F "files=@image1.jpg" -F "files=@image2.jpg" -F "target_language=Vietnamese"
 
 # Poll result (60s timeout, progressive results)
-curl "http://localhost:8000/api/v1/result/{task_id}"
+curl "http://localhost:8000/api/v1/translate/result/{task_id}"
 
 # Check stats
 curl http://localhost:8000/api/v1/stats
@@ -154,7 +161,7 @@ curl http://localhost:8000/health
   - `gemini_service.py`: API integration with retry
   - `key_rotation.py`: API key management
 - `app/models/`: Task schemas (`TaskStatus`, `TranslationTask`, responses)
-- `app/api/`: Routes (`/translate` → task creation, `/result/{id}` → polling, `/stats`)
+- `app/api/`: Routes (`/translate` → task creation, `/translate/result/{id}` → polling, `/stats`)
 
 ## Performance
 - **Throughput**: 3K-60K requests/minute (depends on API keys)
