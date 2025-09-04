@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings
 from typing import List, Optional
-import json
+import yaml
 import os
 
 
@@ -56,11 +56,11 @@ class Settings(BaseSettings):
         case_sensitive = True
 
     def load_api_keys(self) -> dict:
-        """Load API keys from JSON file"""
+        """Load API keys from YAML file"""
         try:
             if os.path.exists(self.API_KEYS_FILE):
                 with open(self.API_KEYS_FILE, 'r') as f:
-                    return json.load(f)
+                    return yaml.safe_load(f)
             return {"keys": []}
         except Exception as e:
             return {"keys": []}

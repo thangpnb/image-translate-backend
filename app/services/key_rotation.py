@@ -102,9 +102,8 @@ class APIKeyManager:
         return selected
     
     async def _check_key_limits_batch(self, key_info: Dict) -> bool:
-        """Efficiently check all key limits in batch"""
+        """Efficiently check all key limits in batch using global .env rate limits"""
         key_id = key_info["id"]
-        limits = key_info.get("limits", {})
         
         current_minute = int(time.time()) // 60
         current_day = int(time.time()) // (24 * 3600)
@@ -120,10 +119,10 @@ class APIKeyManager:
             values = await redis_client.mget(*keys_to_check)
             rpm_count, rpd_count, tpm_count = [int(v) if v else 0 for v in values]
             
-            # Check all limits
-            rpm_limit = limits.get("requests_per_minute", settings.DEFAULT_RPM)
-            rpd_limit = limits.get("requests_per_day", settings.DEFAULT_RPD)
-            tpm_limit = limits.get("tokens_per_minute", settings.DEFAULT_TPM)
+            # Use global rate limits from .env only
+            rpm_limit = settings.DEFAULT_RPM
+            rpd_limit = settings.DEFAULT_RPD
+            tpm_limit = settings.DEFAULT_TPM
             
             if rpm_count >= rpm_limit:
                 logger.debug(f"Key {key_id} exceeded RPM: {rpm_count}/{rpm_limit}")
@@ -218,9 +217,8 @@ class APIKeyManager:
             return False
     
     async def _calculate_key_score(self, key_info: Dict) -> float:
-        """Calculate dynamic score for key selection based on performance metrics"""
+        """Calculate dynamic score for key selection based on performance metrics using global rate limits"""
         key_id = key_info["id"]
-        limits = key_info.get("limits", {})
         
         try:
             current_minute = int(time.time()) // 60
@@ -240,14 +238,14 @@ class APIKeyManager:
                 int(v) if v else 0 for v in values
             ]
             
-            # Calculate capacity remaining (0-1, higher is better)
-            rpm_limit = limits.get("requests_per_minute", settings.DEFAULT_RPM)
-            rpd_limit = limits.get("requests_per_day", settings.DEFAULT_RPD)  
-            tpm_limit = limits.get("tokens_per_minute", settings.DEFAULT_TPM)
+            # Calculate capacity remaining using global rate limits from .env
+            rpm_limit = settings.DEFAULT_RPM
+            rpd_limit = settings.DEFAULT_RPD  
+            tpm_limit = settings.DEFAULT_TPM
             
             rpm_capacity = max(0, (rpm_limit - rpm_used) / rpm_limit)
             rpd_capacity = max(0, (rpd_limit - rpd_used) / rpd_limit)
-            tpm_capacity = max(0, (tpm_limit - tpm_used) / tpm_limit)
+            tmp_capacity = max(0, (tpm_limit - tpm_used) / tpm_limit)
             
             # Performance metrics (success rate, error rate)
             total_requests = success_count + error_count
@@ -303,8 +301,7 @@ class APIKeyManager:
                     "id": key_id,
                     "score": round(score, 3),
                     "available": is_available,
-                    "failed": is_failed,
-                    "limits": key_info.get("limits", {})
+                    "failed": is_failed
                 }
                 stats["key_details"].append(key_stats)
                 

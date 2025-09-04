@@ -86,25 +86,17 @@ docker compose -f docker/docker-compose.yml up -d nginx app_prod redis
 
 ### Required Setup Files
 
-1. **API Keys** (`config/api_keys.json`):
-```json
-{
-  "keys": [
-    {
-      "id": "key_1",
-      "api_key": "your_gemini_api_key_here",
-      "limits": {
-        "requests_per_minute": 60,
-        "requests_per_day": 1440, 
-        "tokens_per_minute": 32000
-      }
-    }
-  ]
-}
+1. **API Keys** (`config/api_keys.yaml`):
+```yaml
+keys:
+  - id: key_1
+    api_key: your_gemini_api_key_here
+  - id: key_2
+    api_key: your_gemini_api_key_here_2
 ```
 
 2. **Environment** (`.env`):
-Copy from `.env.example` and configure Redis, rate limits, and server settings.
+Copy from `.env.example` and configure Redis, **global rate limits** (DEFAULT_RPM, DEFAULT_RPD, DEFAULT_TPM), and server settings.
 
 ### Key Configuration Areas
 - **Worker Pool**: MIN_WORKERS (50), MAX_WORKERS (1000)
