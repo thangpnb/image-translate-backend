@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from enum import Enum
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class TranslationLanguage(str, Enum):
@@ -115,7 +115,7 @@ class TranslationTask(BaseModel):
     task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     status: TaskStatus = Field(default=TaskStatus.PENDING)
     target_language: str = Field(description="Target language for translation")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.now(timezone.utc))
     started_at: Optional[datetime] = Field(default=None)
     completed_at: Optional[datetime] = Field(default=None)
     

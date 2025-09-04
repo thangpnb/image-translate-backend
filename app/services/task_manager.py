@@ -49,7 +49,7 @@ class TaskManager:
         await redis_client.set(task_key, task_data, expire=86400)
         
         # Add to queue
-        await redis_client.redis.lpush(self.queue_key, task.task_id)
+        await redis_client.lpush(self.queue_key, task.task_id)
         
         logger.info(f"Created task {task.task_id} for language {target_language} with {len(encoded_images)} images")
         return task

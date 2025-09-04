@@ -176,8 +176,6 @@ async def get_service_status():
     }
 
 
-
-
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
