@@ -174,9 +174,8 @@ async def get_translation_result(
             
             # Check if any partial results are available for multi-image tasks
             if task.partial_results and len(task.partial_results) > 0:
-                # Calculate progress
+                # Calculate completed count
                 completed_count = sum(1 for r in task.partial_results if r.status in [TaskStatus.COMPLETED, TaskStatus.FAILED])
-                progress_percentage = (completed_count / task.total_images) * 100 if task.total_images > 0 else 0
                 
                 # Return immediately if any partial results are available
                 if completed_count > 0 or task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
@@ -191,9 +190,6 @@ async def get_translation_result(
                         partial_results=task.partial_results,
                         completed_images=completed_count,
                         total_images=task.total_images,
-                        progress_percentage=progress_percentage,
-                        # Backward compatibility
-                        translated_text=task.translated_text,
                         target_language=task.target_language,
                         created_at=task.created_at,
                         started_at=task.started_at,
@@ -215,9 +211,6 @@ async def get_translation_result(
                     partial_results=[],
                     completed_images=1 if success else 0,
                     total_images=1,
-                    progress_percentage=100.0 if success else 0.0,
-                    # Backward compatibility
-                    translated_text=task.translated_text,
                     target_language=task.target_language,
                     created_at=task.created_at,
                     started_at=task.started_at,
@@ -238,12 +231,10 @@ async def get_translation_result(
         
         logger.info(f"Polling timeout for task {task_id}, status: {task.status.value}")
         
-        # Calculate current progress for multi-image tasks
+        # Calculate current completed count for multi-image tasks
         completed_count = 0
-        progress_percentage = 0.0
         if task.partial_results:
             completed_count = sum(1 for r in task.partial_results if r.status in [TaskStatus.COMPLETED, TaskStatus.FAILED])
-            progress_percentage = (completed_count / task.total_images) * 100 if task.total_images > 0 else 0
         
         return TaskResultResponse(
             task_id=task.task_id,
@@ -252,9 +243,6 @@ async def get_translation_result(
             partial_results=task.partial_results or [],
             completed_images=completed_count,
             total_images=task.total_images,
-            progress_percentage=progress_percentage,
-            # Backward compatibility
-            translated_text=None,
             target_language=task.target_language,
             created_at=task.created_at,
             started_at=task.started_at,

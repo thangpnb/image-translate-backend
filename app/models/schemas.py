@@ -155,10 +155,8 @@ class TaskResultResponse(BaseModel):
     partial_results: List[ImageResult] = Field(default_factory=list)
     completed_images: int = Field(default=0)
     total_images: int = Field(default=1)
-    progress_percentage: float = Field(default=0.0)
     
-    # Backward compatibility
-    translated_text: Optional[str] = Field(default=None)
+    # Backward compatibility (other fields)
     target_language: Optional[str] = Field(default=None)
     created_at: Optional[datetime] = Field(default=None)
     started_at: Optional[datetime] = Field(default=None)
