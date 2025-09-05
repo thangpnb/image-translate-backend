@@ -41,10 +41,12 @@ class RedisClient:
             logger.error(f"Redis GET error for key {key}: {e}")
             return None
     
-    async def set(self, key: str, value: str, expire: Optional[int] = None) -> bool:
-        """Set value in Redis with optional expiration"""
+    async def set(self, key: str, value: str, expire: Optional[int] = None, nx: bool = False, ex: Optional[int] = None) -> bool:
+        """Set value in Redis with optional expiration and conditions"""
         try:
-            return await self.redis.set(key, value, ex=expire)
+            # Handle both 'expire' and 'ex' parameters for compatibility
+            expiration = ex if ex is not None else expire
+            return await self.redis.set(key, value, ex=expiration, nx=nx)
         except Exception as e:
             logger.error(f"Redis SET error for key {key}: {e}")
             return False
@@ -155,6 +157,27 @@ class RedisClient:
         except Exception as e:
             logger.error(f"Redis SMEMBERS error for key {key}: {e}")
             return set()
+    
+    async def hset(self, key: str, field: str = None, value: str = None, mapping: dict = None) -> int:
+        """Set hash fields"""
+        try:
+            if mapping:
+                return await self.redis.hset(key, mapping=mapping)
+            elif field and value:
+                return await self.redis.hset(key, field, value)
+            else:
+                raise ValueError("Either provide field/value or mapping")
+        except Exception as e:
+            logger.error(f"Redis HSET error for key {key}: {e}")
+            return 0
+    
+    async def hgetall(self, key: str) -> dict:
+        """Get all fields and values from hash"""
+        try:
+            return await self.redis.hgetall(key)
+        except Exception as e:
+            logger.error(f"Redis HGETALL error for key {key}: {e}")
+            return {}
 
 
 # Global Redis client instance
