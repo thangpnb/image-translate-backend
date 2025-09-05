@@ -60,8 +60,8 @@ async def create_translation_task(
         # Validate number of files
         if len(upload_files) == 0:
             raise HTTPException(status_code=400, detail="No file(s) provided")
-        if len(upload_files) > 10:
-            raise HTTPException(status_code=400, detail="Maximum 10 images allowed per request")
+        if len(upload_files) > settings.MAX_IMAGES_PER_REQUEST:
+            raise HTTPException(status_code=400, detail=f"Maximum {settings.MAX_IMAGES_PER_REQUEST} images allowed per request")
         
         # Process and validate all files
         processed_files = []
@@ -86,13 +86,12 @@ async def create_translation_task(
             
             processed_files.append((upload_file, file_content, file_size))
         
-        # Check total size limit (50MB for multiple images)
-        max_total_size = 50 * 1024 * 1024  # 50MB
-        if total_size > max_total_size:
+        # Check total size limit
+        if total_size > settings.MAX_TOTAL_SIZE:
             logger.warning(f"Total files too large: {total_size} bytes", extra={"request_id": request_id})
             raise HTTPException(
                 status_code=413,
-                detail=f"Total files too large. Maximum total size: {max_total_size} bytes"
+                detail=f"Total files too large. Maximum total size: {settings.MAX_TOTAL_SIZE} bytes"
             )
         
         # Validate file types using python-magic

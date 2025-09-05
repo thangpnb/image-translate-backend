@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     SERVER_PORT: int
     WORKERS: int
     MAX_UPLOAD_SIZE: int
+    MAX_TOTAL_SIZE: int
+    MAX_IMAGES_PER_REQUEST: int
     REQUEST_TIMEOUT: int
 
     # CORS Configuration
