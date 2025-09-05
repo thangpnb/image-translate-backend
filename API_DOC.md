@@ -47,23 +47,19 @@ curl -X POST "http://localhost:8000/api/v1/translate" \
 *Either `file` or `files` is required, not both.
 
 #### Supported Languages
+- Vietnamese (default)
 - English
-- Vietnamese
-- Spanish
-- French
-- German
 - Japanese
 - Korean
 - Chinese (Simplified)
 - Chinese (Traditional)
-- Thai
-- Indonesian
+- Spanish
+- French
+- German
 - Portuguese
 - Russian
-- Italian
-- Dutch
-- Arabic
-- Hindi
+- Thai
+- Indonesian
 
 #### Supported File Formats
 - JPEG (.jpg, .jpeg)

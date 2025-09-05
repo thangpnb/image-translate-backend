@@ -133,7 +133,7 @@ Copy from `.env.example` and configure Redis, **global rate limits** (DEFAULT_RP
 
 ### Adding Components
 - **Middleware**: Add to `app/main.py` (reverse execution order)
-- **Languages**: Add to `TranslationLanguage` enum in `app/models/schemas.py`
+- **Languages**: Add to both `TranslationLanguage` enum in `app/models/schemas.py` and prompts in `config/prompts.yaml`
 - **Rate Limits**: Update `.env` or Nginx config
 
 ### Debugging
