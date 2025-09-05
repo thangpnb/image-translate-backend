@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-FastAPI backend for image translation using Gemini API with long polling architecture and auto-scaling worker pools (50-1000 workers). Supports 3K-60K requests/minute with asynchronous processing.
+FastAPI backend for image translation using Gemini API with long polling architecture and distributed auto-scaling worker pools (50-1000 workers). Supports 3K-60K requests/minute with Redis-based cluster coordination and asynchronous processing.
 
 ## Technology Stack
 
 - **Backend Framework**: FastAPI with async/await patterns
 - **ASGI Server**: Uvicorn (dev), Gunicorn + Uvicorn workers (prod)
-- **Cache/Queue**: Redis for rate limiting, key rotation, task storage, and job queue management
+- **Cache/Queue**: Redis for rate limiting, key rotation, task storage, job queue management, and distributed worker coordination
 - **API Integration**: Google Generative AI (Gemini)
 - **Logging**: Loguru with structured logging and rotation
 - **Containerization**: Docker with multi-stage builds
@@ -79,15 +79,25 @@ docker compose -f docker/docker-compose.yml up -d nginx app_prod redis
 
 ### Core Components
 - **Task Manager** (`app/services/task_manager.py`): Redis task storage and queue
-- **Worker Pool** (`app/services/worker_pool.py`): Auto-scaling 50-1000 workers
+- **Distributed Worker Pool** (`app/services/worker_pool.py`): Auto-scaling 50-1000 workers with Redis-based cluster coordination
 - **Gemini Service** (`app/services/gemini_service.py`): API calls with retry logic
 - **API Key Manager** (`app/services/key_rotation.py`): Smart rotation and rate limiting
 
 ### Scaling & Performance
-- **Auto-scaling**: Queue >100 → +50 workers, >500 → max 1000 workers
-- **API Key Rotation**: Round-robin with rate limit awareness and failure handling  
-- **Redis**: Task storage, FIFO queue, rate limiting, connection pooling
+- **Distributed Auto-scaling**: Gradual scaling (+5/10/15/25 workers) with hysteresis and cooldown mechanisms
+- **Cluster Coordination**: Leader election via Redis locks, instance heartbeats, stale worker cleanup
+- **API Key Rotation**: Round-robin with real-time Redis state and failure handling
+- **Redis**: Task storage, FIFO queue, rate limiting, connection pooling, and distributed state management
 - **Error Handling**: Retry logic, circuit breaker pattern, graceful degradation
+
+### Distributed Architecture
+- **Instance Registration**: Each instance registers with unique ID (`instance-{hostname}-{uuid}`)
+- **Worker Coordination**: All workers registered in `cluster:active_workers` Redis set
+- **Scaling Decisions**: Leader election via `cluster:scaling_lock` for coordinated decisions
+- **Capacity Calculation**: Real-time API key availability from Redis state
+- **Hysteresis**: 3 consecutive low queue readings required before scale-down
+- **Cooldown**: 30-second cooldown between major scaling events (>20 workers)
+- **Health Monitoring**: Instance heartbeats every 30s, automatic stale cleanup after 3 minutes
 
 ## Configuration Management
 
@@ -128,9 +138,9 @@ Copy from `.env.example` and configure Redis, **global rate limits** (DEFAULT_RP
 
 ### Debugging
 - **Task Status**: `/api/v1/translate/result/{task_id}` 
-- **Queue Stats**: `/api/v1/stats`
+- **Queue Stats**: `/stats`
 - **Health**: `/health` endpoint
-- **Redis Keys**: `tasks:*`, `translation_queue`, `processing_tasks`
+- **Redis Keys**: Core: `tasks:*`, `translation_queue`, `processing_tasks`; Distributed: `cluster:active_instances`, `cluster:active_workers`, `cluster:scaling_lock`, `instance:heartbeat:*`
 - **Logs**: `logs/` directory or Docker logs
 
 ### Testing API Endpoints
@@ -147,7 +157,7 @@ curl -X POST "http://localhost:8000/api/v1/translate" \
 curl "http://localhost:8000/api/v1/translate/result/{task_id}"
 
 # Check stats
-curl http://localhost:8000/api/v1/stats
+curl http://localhost:8000/stats
 
 # Health check  
 curl http://localhost:8000/health
@@ -157,7 +167,7 @@ curl http://localhost:8000/health
 - `app/core/`: Config, logging, Redis client
 - `app/services/`: 
   - `task_manager.py`: Redis task storage and queue
-  - `worker_pool.py`: Auto-scaling worker pool (50-1000)
+  - `worker_pool.py`: Distributed auto-scaling worker pool (50-1000) with Redis coordination
   - `gemini_service.py`: API integration with retry
   - `key_rotation.py`: API key management
 - `app/models/`: Task schemas (`TaskStatus`, `TranslationTask`, responses)

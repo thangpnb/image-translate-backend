@@ -7,9 +7,9 @@ A high-performance FastAPI backend service for image translation using Gemini AP
 - 🚀 **FastAPI Framework**: High-performance async API with automatic OpenAPI documentation
 - 🔄 **Smart API Key Rotation**: Intelligent rotation with rate limit handling and fallback
 - 📸 **Multiple Images**: Process 1-10 images per request with progressive results
-- ⏱️ **Long Polling**: Real-time results with auto-scaling worker pools (50-1000 workers)
+- ⏱️ **Long Polling**: Real-time results with distributed auto-scaling worker pools (50-1000 workers)
 - 🛡️ **Comprehensive Security**: Multi-layer rate limiting, security headers, input validation
-- 📊 **Redis Integration**: Caching, rate limiting, and key usage tracking
+- 📊 **Redis Integration**: Caching, rate limiting, key usage tracking, and distributed worker coordination
 - 🐳 **Production Ready**: Docker containerization with Nginx reverse proxy
 - 🌍 **Multi-Language Support**: Support for 13+ languages including Vietnamese, English, Japanese
 - 📝 **Structured Logging**: Comprehensive logging with Loguru and request tracking
@@ -22,25 +22,18 @@ A high-performance FastAPI backend service for image translation using Gemini AP
 Copy the example configuration and add your Gemini API keys:
 
 ```bash
-cp config/api_keys.json.example config/api_keys.json
+cp config/api_keys.yaml.example config/api_keys.yaml
 ```
 
-Edit `config/api_keys.json` with your actual Gemini API keys:
+Edit `config/api_keys.yaml` with your actual Gemini API keys:
 
-```json
-{
-  "keys": [
-    {
-      "id": "key_1",
-      "api_key": "your_actual_gemini_api_key",
-      "limits": {
-        "requests_per_minute": 60,
-        "requests_per_day": 1440,
-        "tokens_per_minute": 32000
-      }
-    }
-  ]
-}
+```yaml
+keys:
+  - id: key_1
+    api_key: your_actual_gemini_api_key
+  - id: key_2
+    api_key: your_actual_gemini_api_key_2
+```
 ```
 
 ### 2. Environment Configuration
@@ -161,7 +154,7 @@ curl "http://localhost:8000/api/v1/translate/result/abc123-def456-789"
   ],
   "completed_images": 1,
   "total_images": 3,
-  "progress_percentage": 33.33
+  "estimated_wait_time": null
 }
 ```
 
@@ -210,8 +203,10 @@ Service health status with component checks.
    - Error handling
 
 3. **Services** (`app/services/`)
+   - **Distributed Worker Pool**: Auto-scaling worker pool with Redis coordination
    - **Gemini Service**: API integration with retry logic
    - **Key Rotation**: Smart API key management
+   - **Task Manager**: Redis-based task storage and queue management
 
 4. **Core** (`app/core/`)
    - Configuration management
@@ -317,9 +312,10 @@ docker compose -f docker/docker-compose.yml up -d nginx app_prod redis
 ### Monitoring
 
 - Health endpoint: `/health`
-- Metrics endpoint: `/metrics`
+- Stats endpoint: `/stats` (includes cluster-wide metrics)
 - Structured logs with request tracing
 - Response time tracking
+- Distributed worker pool metrics
 
 ## Configuration
 
@@ -343,21 +339,18 @@ REDIS_PORT=6379
 
 # Gemini
 GEMINI_MODEL=gemini-2.5-flash-lite
-API_KEYS_FILE=config/api_keys.json
+API_KEYS_FILE=config/api_keys.yaml
 ```
 
 ### API Key Limits
 
-Configure per-key limits in `config/api_keys.json`:
+Note: API key limits are now configured globally via environment variables:
 
-```json
-{
-  "limits": {
-    "requests_per_minute": 60,    # API requests per minute
-    "requests_per_day": 1440,     # API requests per day  
-    "tokens_per_minute": 32000    # Token consumption per minute
-  }
-}
+```bash
+# Global rate limits in .env
+DEFAULT_RPM=60     # Requests per minute per key
+DEFAULT_RPD=1440   # Requests per day per key  
+DEFAULT_TPM=32000  # Tokens per minute per key
 ```
 
 ## Troubleshooting
@@ -369,9 +362,9 @@ Configure per-key limits in `config/api_keys.json`:
    - Check Redis configuration in `.env`
 
 2. **API Key Errors**
-   - Verify API keys in `config/api_keys.json`
+   - Verify API keys in `config/api_keys.yaml`
    - Check Google Cloud Console for key status
-   - Review rate limits and quotas
+   - Review rate limits in `.env` configuration
 
 3. **File Upload Errors**
    - Check file size limits (`MAX_UPLOAD_SIZE`)

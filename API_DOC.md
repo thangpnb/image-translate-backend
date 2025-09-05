@@ -334,13 +334,24 @@ curl "http://localhost:8000/stats"
     "total": 0
   },
   "workers": {
+    "instance_id": "instance-hostname-abc12345",
     "total_workers": 50,
     "active_workers": 0,
     "idle_workers": 50,
     "tasks_processed": 3,
     "tasks_successful": 3,
     "tasks_failed": 0,
-    "success_rate": 100.0
+    "success_rate": 100.0,
+    "avg_completion_rate": 0.5,
+    "recent_scaling_events": 0,
+    "last_scale_history": [],
+    "cluster_total_workers": 100,
+    "cluster_active_instances": 2,
+    "cluster_available_keys": 4,
+    "cluster_total_capacity": 240,
+    "cluster_max_workers": 24,
+    "queue_pressure": 0,
+    "cluster_consecutive_low_queue": 0
   },
   "api_keys": {
     "total": 4,
@@ -353,6 +364,27 @@ curl "http://localhost:8000/stats"
   }
 }
 ```
+
+#### Distributed Statistics Fields
+
+The `/stats` endpoint returns both instance-specific and cluster-wide metrics:
+
+**Instance-specific fields:**
+- `instance_id`: Unique identifier for this instance
+- `total_workers`, `active_workers`, `idle_workers`: This instance's worker counts
+- `tasks_processed`, `tasks_successful`, `tasks_failed`: This instance's task statistics
+- `avg_completion_rate`: Average tasks completed per minute by this instance
+- `recent_scaling_events`: Number of recent scaling decisions
+- `last_scale_history`: Recent scaling events with timestamps and reasons
+
+**Cluster-wide fields:**
+- `cluster_total_workers`: Total workers across all active instances
+- `cluster_active_instances`: Number of live instances in the cluster
+- `cluster_available_keys`: API keys currently available (not disabled/failed)
+- `cluster_total_capacity`: Combined RPM capacity of all available API keys
+- `cluster_max_workers`: Maximum theoretical workers based on API capacity
+- `queue_pressure`: Combined pending + processing tasks
+- `cluster_consecutive_low_queue`: Hysteresis counter for scale-down decisions
 
 ### 4. Health Check
 
@@ -488,6 +520,8 @@ curl "http://localhost:8000/api/v1/translate/result/550e8400-e29b-41d4-a716-4466
 
 - **Task Creation:** Sub-second response time
 - **Translation Processing:** 30-60 seconds average (depends on image complexity)
-- **Concurrent Processing:** 50-1000 workers auto-scaling based on load
+- **Concurrent Processing:** 50-1000 workers with distributed auto-scaling based on cluster-wide load
+- **Parallel Image Processing:** Multiple images in a single request processed concurrently
 - **Data Retention:** Results stored for 24 hours, then automatically cleaned up
-- **Throughput:** 3,000-60,000 requests per minute (depending on API key availability)
+- **Throughput:** 3,000-60,000 requests per minute (depending on API key availability and cluster size)
+- **Distributed Architecture:** Multiple instances coordinate via Redis for optimal resource utilization
