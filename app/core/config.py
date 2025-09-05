@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     POLLING_TIMEOUT: int
     POLLING_CHECK_INTERVAL: float
     TASK_RETENTION_TIME: int
+    
+    # Redis Key Expiration Settings (in seconds)
+    REDIS_TASK_EXPIRE: int
+    REDIS_ERROR_EXPIRE: int
+    REDIS_PROCESSING_EXPIRE: int
+    REDIS_RATE_LIMIT_EXPIRE: int
+    REDIS_BURST_LIMIT_EXPIRE: int
+    REDIS_FAILURE_COUNT_EXPIRE: int
 
     class Config:
         env_file = ".env"

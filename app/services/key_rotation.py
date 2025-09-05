@@ -261,7 +261,7 @@ class APIKeyManager:
             
             failure_key = f"key_failed:{key_id}"
             await redis_client.set(failure_key, str(failure_count), expire=backoff_duration)
-            await redis_client.set(failure_count_key, str(failure_count), expire=86400)  # Track for 24h
+            await redis_client.set(failure_count_key, str(failure_count), expire=settings.REDIS_FAILURE_COUNT_EXPIRE)
             
             # Update error metrics
             await self._update_error_metrics(key_id)

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Union
 from loguru import logger
 from ..core.redis_client import redis_client
+from ..core.config import settings
 from ..models.schemas import TranslationTask, TaskStatus, ImageResult
 
 
@@ -45,8 +46,8 @@ class TaskManager:
         task_key = f"{self.task_prefix}{task.task_id}"
         task_data = task.model_dump_json()
         
-        # Set with expiration (24 hours for multiple images)
-        await redis_client.set(task_key, task_data, expire=86400)
+        # Set with expiration
+        await redis_client.set(task_key, task_data, expire=settings.REDIS_TASK_EXPIRE)
         
         # Add to queue
         await redis_client.lpush(self.queue_key, task.task_id)
@@ -87,7 +88,7 @@ class TaskManager:
             try:
                 error_key = f"debug_error:{task_id}"
                 error_info = f"Error: {type(e).__name__}: {e}"
-                await redis_client.set(error_key, error_info, expire=300)
+                await redis_client.set(error_key, error_info, expire=settings.REDIS_ERROR_EXPIRE)
             except:
                 pass
             return None
@@ -135,7 +136,7 @@ class TaskManager:
             # Save updated task
             task_key = f"{self.task_prefix}{task_id}"
             task_data = task.model_dump_json()
-            await redis_client.set(task_key, task_data, expire=180)
+            await redis_client.set(task_key, task_data, expire=settings.REDIS_PROCESSING_EXPIRE)
             
             logger.info(f"Updated task {task_id} status to {status.value}")
             return True
@@ -306,7 +307,7 @@ class TaskManager:
             # Save updated task
             task_key = f"{self.task_prefix}{task_id}"
             task_data = task.model_dump_json()
-            await redis_client.set(task_key, task_data, expire=86400)
+            await redis_client.set(task_key, task_data, expire=settings.REDIS_TASK_EXPIRE)
             
             logger.info(f"Updated task {task_id} image {image_index} status")
             return True

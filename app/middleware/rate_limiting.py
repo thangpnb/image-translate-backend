@@ -48,7 +48,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             key = f"rate_limit:{client_ip}:{current_minute}"
             
             # Increment counter for current minute
-            count = await redis_client.incr(key, expire=60)
+            count = await redis_client.incr(key, expire=settings.REDIS_RATE_LIMIT_EXPIRE)
             
             # Check against limits
             if count > settings.GLOBAL_RATE_LIMIT:
@@ -57,7 +57,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # Check burst limit (last 10 seconds)
             current_10s = int(time.time()) // 10
             burst_key = f"burst_limit:{client_ip}:{current_10s}"
-            burst_count = await redis_client.incr(burst_key, expire=10)
+            burst_count = await redis_client.incr(burst_key, expire=settings.REDIS_BURST_LIMIT_EXPIRE)
             
             if burst_count > settings.BURST_RATE_LIMIT:
                 return False
