@@ -1,4 +1,4 @@
-config/api_keys.json
+config/api_keys.yaml
 .env
 .vscode/
 PROJECT_INDEX.dsl

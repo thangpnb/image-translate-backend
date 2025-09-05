@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # Gemini Configuration
     GEMINI_MODEL: str
     API_KEYS_FILE: str
+    PROMPTS_FILE: str
 
     # Rate Limiting
     DEFAULT_RPM: int

@@ -16,14 +16,10 @@ class PromptManager:
     def _load_prompts(self) -> None:
         """Load prompts from configuration file"""
         try:
-            # Get the project root directory
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            prompts_file = os.path.join(project_root, "config", "prompts.yaml")
+            prompts_file = settings.PROMPTS_FILE
             
             if not os.path.exists(prompts_file):
-                logger.warning(f"Prompts file not found at {prompts_file}, using fallback prompts")
-                self._load_fallback_prompts()
-                return
+                raise FileNotFoundError(f"Prompts file not found at {prompts_file}")
             
             with open(prompts_file, 'r', encoding='utf-8') as f:
                 raw_prompts = yaml.safe_load(f)
@@ -41,26 +37,8 @@ class PromptManager:
             
         except Exception as e:
             logger.error(f"Failed to load prompts from file: {e}")
-            self._load_fallback_prompts()
+            raise RuntimeError(f"Could not load prompts from {settings.PROMPTS_FILE}: {e}")
     
-    def _load_fallback_prompts(self) -> None:
-        """Load basic fallback prompts if configuration file is unavailable"""
-        self._prompts = {
-            TranslationLanguage.ENGLISH: "You are a professional game localization expert. Please extract and clean up all visible text from this image. Provide only the text content without explanations. Extract all text from the provided image:",
-            TranslationLanguage.VIETNAMESE: "Bạn là chuyên gia dịch văn bản từ hình ảnh sang tiếng việt dễ hiểu cho game thủ. Hãy chỉ cung cấp bản dịch mà không giải thích gì thêm. Bây giờ hãy dịch cho tôi từ ảnh được cung cấp.",
-            TranslationLanguage.JAPANESE: "あなたはプロのゲームローカライゼーションエキスパートです。この画像からすべてのテキストを抽出し、翻訳してください。説明なしに翻訳のみを提供してください。",
-            TranslationLanguage.KOREAN: "당신은 전문 게임 현지화 전문가입니다. 이 이미지에서 모든 텍스트를 추출하고 번역하세요. 설명 없이 번역만 제공하세요.",
-            TranslationLanguage.CHINESE_SIMPLIFIED: "您是专业的游戏本地化专家。请从此图像中提取并翻译所有文本。仅提供翻译，无需解释。",
-            TranslationLanguage.CHINESE_TRADITIONAL: "您是專業的遊戲本地化專家。請從此圖像中提取並翻譯所有文本。僅提供翻譯，無需解釋。",
-            TranslationLanguage.SPANISH: "Eres un experto profesional en localización de juegos. Extrae y traduce todo el texto de esta imagen. Proporciona solo la traducción sin explicaciones.",
-            TranslationLanguage.FRENCH: "Vous êtes un expert professionnel en localisation de jeux. Extrayez et traduisez tout le texte de cette image. Fournissez uniquement la traduction sans explications.",
-            TranslationLanguage.GERMAN: "Sie sind ein professioneller Experte für Spielelokalisierung. Extrahieren und übersetzen Sie den gesamten Text aus diesem Bild. Geben Sie nur die Übersetzung ohne Erklärungen an.",
-            TranslationLanguage.PORTUGUESE: "Você é um especialista profissional em localização de jogos. Extraia e traduza todo o texto desta imagem. Forneça apenas a tradução sem explicações.",
-            TranslationLanguage.RUSSIAN: "Вы профессиональный эксперт по локализации игр. Извлеките и переведите весь текст с этого изображения. Предоставьте только перевод без объяснений.",
-            TranslationLanguage.THAI: "คุณเป็นผู้เชี่ยวชาญด้านการแปลเกมส์เป็นภาษาไทย กรุณาแปลข้อความทั้งหมดจากรูปภาพนี้ ให้เฉพาะการแปลเท่านั้นโดยไม่ต้องอธิบาย",
-            TranslationLanguage.INDONESIAN: "Anda adalah ahli profesional lokalisasi game. Ekstrak dan terjemahkan semua teks dari gambar ini. Berikan hanya terjemahan tanpa penjelasan."
-        }
-        logger.warning("Using fallback prompts")
     
     def get_prompt(self, target_language: Union[TranslationLanguage, str]) -> str:
         """
