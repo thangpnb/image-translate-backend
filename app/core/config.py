@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     REDIS_PORT: int
     REDIS_DB: int
     REDIS_PASSWORD: Optional[str]
+    REDIS_MAX_CONNECTIONS: int
 
     # Gemini Configuration
     GEMINI_MODEL: str

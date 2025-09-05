@@ -15,7 +15,7 @@ class RedisClient:
                 settings.redis_url,
                 encoding="utf-8",
                 decode_responses=True,
-                max_connections=200,
+                max_connections=settings.REDIS_MAX_CONNECTIONS,
                 retry_on_timeout=True
             )
             
