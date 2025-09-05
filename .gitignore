@@ -3,6 +3,7 @@ config/api_keys.yaml
 .vscode/
 PROJECT_INDEX.dsl
 test_images/
+improvements/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
